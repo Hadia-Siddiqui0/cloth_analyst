@@ -1,0 +1,28 @@
+# --- Secrets ---
+.env
+*.env
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# --- Node ---
+node_modules/
+frontend/.next/
+frontend/dist/
+
+# --- Real business data: NEVER commit customer files ---
+backend/uploaded_files/
+data/real/
+*.xlsx
+*.xls
+!data/sample/*.xlsx
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/

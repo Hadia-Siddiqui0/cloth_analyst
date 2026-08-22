@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Your Business, Simple View</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+    <style>
+      :root {
+        --bg: #f8f4ec;
+        --panel: #fffdf9;
+        --panel-border: #e7dfce;
+        --ink: #20232e;
+        --ink-dim: #7a7566;
+        --indigo: #2b3f6c;
+        --indigo-soft: #e9edf5;
+        --purple: #7b2ff7;
+        --purple-soft: #ede1fe;
+        --purple-soft-border: #ddc8fb;
+        --purple-soft-text: #4c1f99;
+        --coral: #ff4d6d;
+        --coral-soft: #ffe3e8;
+        --gold: #c89b3c;
+        --gold-soft: #f5eddb;
+        --gold-soft-border: #e6d6ab;
+        --gold-soft-text: #6b5423;
+        --shadow-1: rgba(32, 35, 46, 0.03);
+        --shadow-2: rgba(43, 63, 108, 0.05);
+      }
+      [data-theme="dark"] {
+        --bg: #15121f;
+        --panel: #1d1929;
+        --panel-border: #2e2739;
+        --ink: #ede9f5;
+        --ink-dim: #9c93ae;
+        --indigo: #8da0d8;
+        --indigo-soft: #262040;
+        --purple: #9b5cff;
+        --purple-soft: #2b2044;
+        --purple-soft-border: #453368;
+        --purple-soft-text: #d3b8ff;
+        --coral: #ff6d89;
+        --coral-soft: #3a2029;
+        --gold: #e0bb63;
+        --gold-soft: #35301f;
+        --gold-soft-border: #55492b;
+        --gold-soft-text: #e8d19f;
+        --shadow-1: rgba(0, 0, 0, 0.15);
+        --shadow-2: rgba(0, 0, 0, 0.25);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          "Manrope",
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        padding: 32px 24px 70px;
+        max-width: 880px;
+        margin-left: auto;
+        margin-right: auto;
+        transition:
+          background 0.2s ease,
+          color 0.2s ease;
+      }
+      .mono {
+        font-family: "JetBrains Mono", monospace;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .masthead {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin-bottom: 2px;
+      }
+      h1 {
+        font-size: 26px;
+        font-weight: 800;
+        margin: 0;
+        letter-spacing: -0.02em;
+      }
+      .stitch-mark {
+        color: var(--indigo);
+        font-size: 18px;
+        opacity: 0.55;
+        letter-spacing: 2px;
+      }
+      .subtitle {
+        color: var(--ink-dim);
+        font-size: 14px;
+        margin-bottom: 22px;
+        font-weight: 500;
+      }
+
+      .theme-toggle {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 17px;
+        box-shadow: 0 2px 8px var(--shadow-2);
+        transition:
+          background 0.2s ease,
+          transform 0.15s ease;
+      }
+      .theme-toggle:hover {
+        transform: scale(1.06);
+      }
+
+      .stitch-divider {
+        height: 8px;
+        margin: 26px 0;
+        background-image: repeating-linear-gradient(
+          135deg,
+          var(--indigo) 0 5px,
+          transparent 5px 12px
+        );
+        opacity: 0.28;
+        border-radius: 3px;
+      }
+
+      .banner {
+        background: var(--purple-soft);
+        border: 1px solid var(--purple-soft-border);
+        border-left: 4px solid var(--purple);
+        border-radius: 10px;
+        padding: 14px 18px;
+        font-size: 14px;
+        color: var(--purple-soft-text);
+        margin-bottom: 14px;
+        line-height: 1.6;
+        font-weight: 500;
+      }
+      .banner.info {
+        background: var(--gold-soft);
+        border-color: var(--gold-soft-border);
+        border-left-color: var(--gold);
+        color: var(--gold-soft-text);
+      }
+
+      .kpi-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin: 22px 0;
+      }
+      .kpi {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 14px;
+        padding: 20px;
+        border-left: 4px solid var(--indigo);
+        box-shadow:
+          0 1px 2px var(--shadow-1),
+          0 6px 16px var(--shadow-2);
+      }
+      .kpi.good {
+        border-left-color: var(--purple);
+      }
+      .kpi.bad {
+        border-left-color: var(--coral);
+      }
+      .kpi .label {
+        font-size: 12.5px;
+        color: var(--ink-dim);
+        margin-bottom: 8px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .kpi .value {
+        font-size: 27px;
+        font-weight: 700;
+        line-height: 1.15;
+      }
+      .kpi .sub {
+        font-size: 12.5px;
+        color: var(--ink-dim);
+        margin-top: 6px;
+        font-weight: 500;
+      }
+
+      .section {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 16px;
+        padding: 26px 28px;
+        margin-bottom: 18px;
+        box-shadow:
+          0 1px 2px var(--shadow-1),
+          0 8px 20px var(--shadow-2);
+      }
+      .section h2 {
+        font-size: 18px;
+        font-weight: 700;
+        margin: 0 0 4px;
+        letter-spacing: -0.01em;
+      }
+      .section .explain {
+        font-size: 13.5px;
+        color: var(--ink-dim);
+        margin-bottom: 18px;
+        line-height: 1.55;
+        font-weight: 500;
+      }
+
+      canvas {
+        max-height: 280px;
+      }
+
+      .bar-row {
+        margin-bottom: 15px;
+      }
+      .bar-row .bar-label {
+        display: flex;
+        justify-content: space-between;
+        font-size: 14px;
+        margin-bottom: 6px;
+      }
+      .bar-row .bar-label .name {
+        font-weight: 600;
+      }
+      .bar-row .bar-label .amount {
+        font-weight: 700;
+      }
+      .bar-track {
+        background: var(--indigo-soft);
+        border-radius: 6px;
+        height: 14px;
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        border-radius: 6px;
+      }
+      .bar-fill.pos {
+        background: var(--purple);
+      }
+      .bar-fill.neg {
+        background: var(--coral);
+      }
+
+      .takeaway {
+        font-size: 13.5px;
+        padding: 12px 16px;
+        border-radius: 10px;
+        margin-top: 14px;
+        background: var(--indigo-soft);
+        color: var(--indigo);
+        line-height: 1.55;
+        font-weight: 500;
+      }
+      .secondary {
+        opacity: 0.82;
+      }
+      .secondary h2 {
+        font-size: 15px;
+      }
+
+      .footer-note {
+        font-size: 12.5px;
+        color: var(--ink-dim);
+        margin-top: 22px;
+        line-height: 1.7;
+        font-weight: 500;
+        padding: 16px 18px;
+        border: 1px dashed var(--panel-border);
+        border-radius: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <button class="theme-toggle" id="themeToggle" title="Switch theme">
+      🌙
+    </button>
+
+    <div class="masthead">
+      <h1>Your Business</h1>
+      <span class="stitch-mark">···</span>
+    </div>
+    <div class="subtitle" id="subtitleText"></div>
+
+    <div class="banner">
+      <b>How this stays current.</b> Everything below comes from a real file,
+      run through the same system that will read your actual records. Hand over
+      a new file whenever you're ready, and this page rebuilds itself around it.
+      Nothing here gets rebuilt by hand.
+    </div>
+
+    <div class="banner info" id="contextBanner"></div>
+
+    <div class="kpi-row" id="kpiRow"></div>
+
+    <div class="stitch-divider"></div>
+
+    <div class="section">
+      <h2>How much did you make each week?</h2>
+      <div class="explain">
+        Each bar is one week. Purple means you made money that week. Pink would
+        mean you spent more than you earned. Taller bars, bigger amounts.
+      </div>
+      <canvas id="weeklyChart"></canvas>
+      <div class="takeaway" id="weeklyTakeaway"></div>
+    </div>
+
+    <div class="section" id="whySection" style="display: none">
+      <h2>Why did it change?</h2>
+      <div id="whyContent"></div>
+    </div>
+
+    <div class="section">
+      <h2>Which products make you the most money?</h2>
+      <div class="explain" id="costingExplain"></div>
+      <div id="costingBars"></div>
+    </div>
+
+    <div class="section">
+      <h2>Where does your day to day cash go?</h2>
+      <div class="explain">
+        Small, everyday spending, tea, transport, repairs, and so on, grouped
+        into categories. Biggest at the top.
+      </div>
+      <div id="expenseBars"></div>
+    </div>
+
+    <div class="stitch-divider"></div>
+
+    <div class="section secondary">
+      <h2>Old contractor balance, not part of your current business</h2>
+      <div class="explain" id="contractorExplain"></div>
+    </div>
+
+    <div class="footer-note" id="footerNote"></div>
+
+    <script>
+      const DATA = @@DATA_JSON@@;
+
+      function rupees(n) {
+        if (n === null || n === undefined) return 'Not available';
+        return 'Rs. ' + Math.round(Math.abs(n)).toLocaleString();
+      }
+      function signedRupees(n) {
+        if (n === null || n === undefined) return 'Not available';
+        return (n < 0 ? '-' : '') + rupees(n);
+      }
+
+      // --- Theme toggle: defaults to light, remembers choice for next time ---
+      function getStoredTheme() {
+        try { return localStorage.getItem('dashboard-theme'); } catch (e) { return null; }
+      }
+      function setStoredTheme(theme) {
+        try { localStorage.setItem('dashboard-theme', theme); } catch (e) { /* ignore if unavailable */ }
+      }
+      let currentTheme = getStoredTheme() || 'light';
+      document.documentElement.setAttribute('data-theme', currentTheme);
+
+      const themeBtn = document.getElementById('themeToggle');
+      function updateToggleIcon() {
+        themeBtn.textContent = currentTheme === 'dark' ? '☀️' : '🌙';
+      }
+      updateToggleIcon();
+      themeBtn.addEventListener('click', () => {
+        currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        setStoredTheme(currentTheme);
+        updateToggleIcon();
+        drawWeeklyChart();
+      });
+
+      const k = DATA.kpis;
+      const ctx = DATA.context;
+
+      document.getElementById('subtitleText').textContent =
+        `Based on your records from ${k.date_min} to ${k.date_max}`;
+
+      const lines = [];
+      lines.push(`Right now this only shows your <b>in-house production</b>. That's what you told us is your current setup.`);
+      lines.push(`Your sales, customers, who owes you money, and stock counts are still in your <b>paper register</b>. Once those are shared, this page will show all of it too.`);
+      if (!ctx.article_costing_current) lines.push(`The product cost numbers below are from an <b>old file</b>. Treat them as an example of what we'll show, not today's real prices.`);
+      document.getElementById('contextBanner').innerHTML = lines.join('<br><br>');
+
+      const profitGood = k.total_profit >= 0;
+      const kpis = [
+        { label: 'Money coming in', value: rupees(k.total_revenue), sub: 'from sales recorded', cls: '' },
+        { label: 'Money going out', value: rupees(k.total_cost), sub: 'materials, labor, overhead', cls: '' },
+        { label: profitGood ? 'What you kept' : 'What you lost', value: signedRupees(k.total_profit), sub: profitGood ? 'good, this is your gain' : 'costs were higher than income', cls: profitGood ? 'good' : 'bad' },
+      ];
+      document.getElementById('kpiRow').innerHTML = kpis.map(x => `
+        <div class="kpi ${x.cls}">
+          <div class="label">${x.label}</div>
+          <div class="value mono">${x.value}</div>
+          <div class="sub">${x.sub}</div>
+        </div>`).join('');
+
+      // --- Weekly chart is redrawn on theme toggle so grid/tick colors match ---
+      const wp = DATA.weekly_profit;
+      let weeklyChartInstance = null;
+      function drawWeeklyChart() {
+        const isDark = currentTheme === 'dark';
+        const tickColor = isDark ? '#9C93AE' : '#7A7566';
+        const gridColor = isDark ? '#2E2739' : '#E7DFCE';
+
+        if (weeklyChartInstance) weeklyChartInstance.destroy();
+        weeklyChartInstance = new Chart(document.getElementById('weeklyChart'), {
+          type: 'bar',
+          data: {
+            labels: wp.labels,
+            datasets: [{
+              data: wp.profit,
+              backgroundColor: wp.profit.map(v => v >= 0 ? '#7B2FF7' : '#FF4D6D'),
+              borderRadius: 5,
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: { label: (item) => rupees(item.raw) + (item.raw >= 0 ? ' profit' : ' loss') } }
+            },
+            scales: {
+              x: { ticks: { color: tickColor, font: { size: 11, family: 'Manrope' } }, grid: { display: false } },
+              y: { ticks: { color: tickColor, font: { size: 11, family: 'JetBrains Mono' }, callback: (v) => 'Rs ' + (v/1000) + 'k' }, grid: { color: gridColor } }
+            }
+          }
+        });
+      }
+      drawWeeklyChart();
+
+      if (wp.profit.length) {
+        const goodWeeks = wp.profit.filter(x => x >= 0).length;
+        document.getElementById('weeklyTakeaway').textContent =
+          `Out of ${wp.profit.length} weeks shown, ${goodWeeks} were profitable.`;
+      } else {
+        document.getElementById('weeklyTakeaway').textContent = 'Not enough weekly data yet to show a pattern.';
+      }
+
+      const why = DATA.why_analysis;
+      if (why) {
+        document.getElementById('whySection').style.display = 'block';
+
+        if (why.flat_week) {
+          document.getElementById('whyContent').innerHTML =
+            `<div class="explain">Your most recent two weeks (${why.prior_week} to ${why.latest_week}) were basically flat. No real change in money in or out to explain.</div>`;
+        } else {
+          const profitUp = why.profit_change >= 0;
+          const revUp = why.revenue_change >= 0;
+          const costUp = why.cost_change >= 0;
+
+          let whyHtml = `
+            <div class="explain" style="margin-bottom:12px;">Showing the ${why.comparison_label}: <b>${why.prior_week} to ${why.latest_week}</b></div>
+            <div class="kpi-row" style="grid-template-columns: repeat(3,1fr); margin: 0 0 16px;">
+              <div class="kpi ${profitUp?'good':'bad'}">
+                <div class="label">Profit change</div>
+                <div class="value mono">${profitUp?'+':''}${signedRupees(why.profit_change)}</div>
+              </div>
+              <div class="kpi">
+                <div class="label">Money in changed by</div>
+                <div class="value mono">${revUp?'+':''}${signedRupees(why.revenue_change)}</div>
+              </div>
+              <div class="kpi">
+                <div class="label">Money out changed by</div>
+                <div class="value mono">${costUp?'+':''}${signedRupees(why.cost_change)}</div>
+              </div>
+            </div>`;
+
+          if (why.top_cost_driver) {
+            const driverUp = why.top_cost_driver_change >= 0;
+            whyHtml += `<div class="takeaway">
+              The single biggest mover in your costs was <b>${why.top_cost_driver}</b>,
+              which ${driverUp ? 'went up' : 'went down'} by <b>${rupees(why.top_cost_driver_change)}</b>
+              that week. ${driverUp && !profitUp ? "That's the main reason profit dropped." : ''}
+            </div>`;
+          }
+          document.getElementById('whyContent').innerHTML = whyHtml;
+        }
+      }
+
+      const costing = [...DATA.costing].sort((a,b) => (b.profit_per_piece||0) - (a.profit_per_piece||0));
+      const maxProfit = Math.max(...costing.map(r => Math.abs(r.profit_per_piece||0)), 1);
+      document.getElementById('costingExplain').innerHTML =
+        (DATA.context.article_costing_current ? '' : '<b>Note: these are old, example prices, not today\'s real numbers.</b> ') +
+        'How much profit you make on ONE piece of each product.';
+      document.getElementById('costingBars').innerHTML = costing.map(r => {
+        const p = r.profit_per_piece || 0;
+        const pct = Math.min(100, Math.round((Math.abs(p) / maxProfit) * 100));
+        return `
+          <div class="bar-row">
+            <div class="bar-label">
+              <span class="name">${r.cloth_type}</span>
+              <span class="amount mono" style="color:${p>=0?'#7B2FF7':'#FF4D6D'}">${signedRupees(p)} / piece</span>
+            </div>
+            <div class="bar-track"><div class="bar-fill ${p>=0?'pos':'neg'}" style="width:${pct}%"></div></div>
+          </div>`;
+      }).join('');
+
+      const lowestMargin = DATA.lowest_margin_product;
+      if (lowestMargin) {
+        const msg = lowestMargin.is_losing_money
+          ? `<b>${lowestMargin.cloth_type}</b> is currently losing you <b>${rupees(Math.abs(lowestMargin.profit_per_piece))}</b> on every piece sold. Worth checking its cost or price first.`
+          : `Your lowest-profit product is <b>${lowestMargin.cloth_type}</b> at <b>${rupees(lowestMargin.profit_per_piece)}</b> per piece. Still profitable, just the smallest margin.`;
+        document.getElementById('costingBars').innerHTML += `<div class="takeaway">${msg}</div>`;
+      }
+
+      const cats = Object.entries(DATA.expense_categories).sort((a,b) => b[1]-a[1]);
+      const maxExpense = Math.max(...cats.map(c => c[1]), 1);
+      document.getElementById('expenseBars').innerHTML = cats.map(([name, amt]) => {
+        const pct = Math.round((amt / maxExpense) * 100);
+        return `
+          <div class="bar-row">
+            <div class="bar-label"><span class="name">${name}</span><span class="amount mono">${rupees(amt)}</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:#7B2FF7"></div></div>
+          </div>`;
+      }).join('') || '<div class="explain">No spending data found yet.</div>';
+
+      const bal = k.contractor_balance;
+      const trendWord = k.contractor_trend === 'down' ? 'going down (being paid off)'
+                       : k.contractor_trend === 'up' ? 'going up' : 'steady';
+      document.getElementById('contractorExplain').innerHTML = bal !== null
+        ? `You owed <b>${rupees(bal)}</b> to a contractor you used in the past. That balance has been <b>${trendWord}</b>. This isn't part of your current in-house business.`
+        : 'No contractor balance found in this file.';
+
+      document.getElementById('footerNote').innerHTML =
+        `Built from ${k.n_records} production records and ${k.n_articles} products in your file.<br>` +
+        `Still waiting on you for the full picture: sales and customer records, who owes you money, purchase records, and a stock count.`;
+    </script>
+  </body>
+</html>

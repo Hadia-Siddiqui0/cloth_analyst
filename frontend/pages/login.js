@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import ThemeToggle from "../src/components/ThemeToggle";
+import ThemeToggle from "../src/{components,pages,services,hooks,utils}/ThemeToggle";
 import { auth } from "../src/services/api";
 
 export default function Login() {

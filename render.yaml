@@ -4,7 +4,7 @@
 services:
   - type: web
     name: textile-bi-backend
-    env: python
+    runtime: python
     region: singapore
     plan: free
     buildCommand: "cd backend && pip install -r requirements.txt"

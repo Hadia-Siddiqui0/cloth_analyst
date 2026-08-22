@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import Chart from "chart.js/auto";
-import KpiCard from "../src/components/KpiCard";
+import KpiCard from "../src/{components,pages,services,hooks,utils}/KpiCard";
 import Section, {
   StitchDivider,
   BarRow,
   Takeaway,
-} from "../src/components/Section";
+} from "../src/{components,pages,services,hooks,utils}/Section";
 import { dashboard } from "../src/services/api";
 import { rupees, signedRupees } from "../src/utils/format";
 

@@ -13,6 +13,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    # Every Vercel deployment gets its own unique URL
+    # (cloth-analyst-<hash>-bizzarooo.vercel.app) in addition to the stable
+    # production alias (cloth-analyst.vercel.app). Testing a fresh
+    # deployment before it's promoted to production hits the unique URL,
+    # which allow_origins alone won't match. This regex covers both.
+    allow_origin_regex=r"https://cloth-analyst.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

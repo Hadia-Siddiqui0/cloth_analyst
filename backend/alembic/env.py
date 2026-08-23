@@ -8,7 +8,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings
-from app.db.base import Base  # imports every model for autogenerate
+from app.db.base import Base
+import app.db.all_models  # noqa: F401 -- registers every model with Base.metadata
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

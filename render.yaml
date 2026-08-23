@@ -19,10 +19,7 @@ services:
       - key: ENVIRONMENT
         value: production
       - key: CORS_ORIGINS
-        # Placeholder -- update this AFTER the frontend is deployed on Vercel,
-        # to the real Vercel URL (e.g. ["https://your-app.vercel.app"]).
-        # Must stay valid JSON list syntax, including the brackets.
-        value: '["http://localhost:3000"]'
+        value: '["https://cloth-analyst.vercel.app"]'
 
 databases:
   - name: textile-bi-db

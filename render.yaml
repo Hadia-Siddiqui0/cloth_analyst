@@ -20,6 +20,11 @@ services:
         value: production
       - key: CORS_ORIGINS
         value: '["https://cloth-analyst.vercel.app"]'
+      - key: PYTHON_VERSION
+        # Render defaults new services to Python 3.14 as of Feb 2026 --
+        # pandas==2.2.2 has no pre-built wheel for it and fails trying to
+        # compile from source. Pin to a version with known-good wheels.
+        value: 3.12.7
 
 databases:
   - name: textile-bi-db

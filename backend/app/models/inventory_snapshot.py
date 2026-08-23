@@ -44,8 +44,14 @@ class InventorySnapshot(Base):
     raw_material_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("raw_materials.id"), nullable=True)
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=True)
 
-    inventory_type: Mapped[InventoryType] = mapped_column(Enum(InventoryType), nullable=False)
-    location: Mapped[InventoryLocation] = mapped_column(Enum(InventoryLocation), nullable=True)  # null for raw material/WIP, set for finished goods
+    inventory_type: Mapped[InventoryType] = mapped_column(
+        Enum(InventoryType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+    )
+    location: Mapped[InventoryLocation] = mapped_column(
+        Enum(InventoryLocation, values_callable=lambda x: [e.value for e in x]),
+        nullable=True,
+    )  # null for raw material/WIP, set for finished goods
     location_detail: Mapped[str] = mapped_column(String(255), nullable=True)  # e.g. which shop, which wholesaler
 
     quantity: Mapped[float] = mapped_column(Numeric(14, 3), nullable=False)

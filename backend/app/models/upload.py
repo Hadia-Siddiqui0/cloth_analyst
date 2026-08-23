@@ -32,7 +32,10 @@ class Upload(Base):
 
     original_filename: Mapped[str] = mapped_column(String(500), nullable=False)
     stored_path: Mapped[str] = mapped_column(String(1000), nullable=False)
-    status: Mapped[UploadStatus] = mapped_column(Enum(UploadStatus), default=UploadStatus.UPLOADED)
+    status: Mapped[UploadStatus] = mapped_column(
+        Enum(UploadStatus, values_callable=lambda x: [e.value for e in x]),
+        default=UploadStatus.UPLOADED,
+    )
 
     column_mapping: Mapped[dict] = mapped_column(JSON, nullable=True)   # {sheet_name: {source_col: canonical_field}}
     validation_issues: Mapped[dict] = mapped_column(JSON, nullable=True)  # missing values, dup rows, invalid dates etc.

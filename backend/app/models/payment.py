@@ -41,7 +41,11 @@ class Payment(Base):
     amount: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
     due_date: Mapped[date_type] = mapped_column(Date, nullable=True, index=True)
     paid_date: Mapped[date_type] = mapped_column(Date, nullable=True)
-    status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus), default=PaymentStatus.UPCOMING, index=True)
+    status: Mapped[PaymentStatus] = mapped_column(
+        Enum(PaymentStatus, values_callable=lambda x: [e.value for e in x]),
+        default=PaymentStatus.UPCOMING,
+        index=True,
+    )
 
     source_upload_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("uploads.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

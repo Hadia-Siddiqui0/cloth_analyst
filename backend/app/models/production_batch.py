@@ -33,7 +33,10 @@ class ProductionBatch(Base):
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=True)
 
     batch_code: Mapped[str] = mapped_column(String(50), nullable=True)  # e.g. "Batch #1048"
-    stream: Mapped[ProductionStream] = mapped_column(Enum(ProductionStream, name="productionstream"), default=ProductionStream.UNSPECIFIED)
+    stream: Mapped[ProductionStream] = mapped_column(
+        Enum(ProductionStream, name="productionstream", values_callable=lambda x: [e.value for e in x]),
+        default=ProductionStream.UNSPECIFIED,
+    )
 
     material_input_quantity: Mapped[float] = mapped_column(Numeric(12, 3), nullable=True)  # e.g. meters of fabric in
     expected_output_quantity: Mapped[float] = mapped_column(Numeric(12, 2), nullable=True)

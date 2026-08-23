@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, date as date_type
 from enum import Enum as PyEnum
 
-from sqlalchemy import String, DateTime, Date, ForeignKey, Numeric, Enum, func
+from sqlalchemy import String, DateTime, Date, ForeignKey, Numeric, Enum, JSON, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,7 +24,12 @@ class ProductionRun(Base):
     `source_sheet` and `stream` are kept because the customer's own file
     tracked self-made and outsourced (CMT) production separately with
     different cost structures -- don't silently merge them until that's
-    confirmed with him."""
+    confirmed with him.
+
+    `cost_breakdown` stores the itemized overhead columns (Elect, Rent,
+    Helper, Supp, etc.) per row as captured by ingestion_service.py --
+    this is what lets the "why did cost change" analysis attribute a
+    move to a specific category instead of only seeing the total."""
 
     __tablename__ = "production_runs"
 
@@ -33,7 +38,10 @@ class ProductionRun(Base):
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=True)
 
     date: Mapped[date_type] = mapped_column(Date, nullable=False, index=True)
-    stream: Mapped[ProductionStream] = mapped_column(Enum(ProductionStream), default=ProductionStream.UNSPECIFIED)
+    stream: Mapped[ProductionStream] = mapped_column(
+        Enum(ProductionStream, values_callable=lambda x: [e.value for e in x]),
+        default=ProductionStream.UNSPECIFIED,
+    )
     article_label: Mapped[str] = mapped_column(String(100), nullable=True)  # raw article code as given, pre-mapping
     quantity: Mapped[float] = mapped_column(Numeric(12, 2), nullable=True)
 
@@ -41,6 +49,7 @@ class ProductionRun(Base):
     sale_price_piece: Mapped[float] = mapped_column(Numeric(12, 2), nullable=True)
     revenue_total: Mapped[float] = mapped_column(Numeric(14, 2), nullable=True)
     profit: Mapped[float] = mapped_column(Numeric(14, 2), nullable=True)
+    cost_breakdown: Mapped[dict] = mapped_column(JSON, nullable=True)
 
     # traceability back to the exact upload/sheet this row came from
     source_upload_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("uploads.id"), nullable=True)

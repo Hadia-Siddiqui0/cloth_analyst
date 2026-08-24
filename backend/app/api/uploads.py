@@ -123,10 +123,31 @@ def confirm_import(
 ):
     """Step 6: re-parse (mapping was already reviewed by the user via the
     frontend at this point) and actually write rows into the business
-    tables, tagged with this upload's id for full traceability."""
+    tables, tagged with this upload's id for full traceability.
+
+    IMPORTANT: this REPLACES the company's existing business data rather
+    than adding to it. Confirmed by testing: re-uploading the same file
+    repeatedly was silently duplicating every row each time (so KPIs
+    kept shifting), and uploading a genuinely different file still
+    showed old data mixed in from prior uploads. For a real business
+    doing period-over-period uploads (January, then February, ...) this
+    replace-everything approach is too blunt -- that needs proper
+    period/versioning logic later -- but for now it makes every import
+    deterministic: the same file always produces the same result, and a
+    new file never overlaps with a previous one.
+
+    The delete + re-insert both happen in this one transaction (single
+    commit at the end), so if parsing/inserting the new file fails
+    partway through, the rollback restores the old data instead of
+    leaving the company with nothing."""
     upload = db.query(Upload).filter(Upload.id == upload_id, Upload.company_id == company_id).first()
     if not upload:
         raise HTTPException(status_code=404, detail="Upload not found")
+
+    db.query(ProductionRun).filter(ProductionRun.company_id == company_id).delete()
+    db.query(Product).filter(Product.company_id == company_id).delete()
+    db.query(ContractorLedgerEntry).filter(ContractorLedgerEntry.company_id == company_id).delete()
+    db.query(Expense).filter(Expense.company_id == company_id).delete()
 
     parsed_sheets = detect_and_parse_workbook(upload.stored_path)
     rows_imported = 0

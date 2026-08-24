@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api import auth, uploads, dashboard
+from app.api import auth, uploads, dashboard, receivables
 
 app = FastAPI(
     title="Textile Business Intelligence API",
@@ -27,6 +27,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(uploads.router)
 app.include_router(dashboard.router)
+app.include_router(receivables.router)
 
 
 @app.get("/health")

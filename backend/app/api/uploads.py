@@ -19,6 +19,32 @@ from app.services.ingestion_service import detect_and_parse_workbook, categorize
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
 
+@router.delete("/reset")
+def reset_company_data(
+    company_id: uuid.UUID = Depends(get_current_company_id),
+    db: Session = Depends(get_db),
+):
+    """Deletes every imported business record for the CURRENT company
+    only (never touches other companies -- company_id comes from the
+    verified JWT, same as every other endpoint here). For testing: since
+    uploads are additive (each confirm ADDS rows, never replaces prior
+    ones -- correct for a real business uploading new periods over time,
+    confusing when repeatedly re-testing the same file), this gives a
+    clean slate without creating a new account each time.
+
+    Deliberately does NOT delete the company or user -- just the
+    imported data -- so you keep your login."""
+    deleted_counts = {
+        "production_runs": db.query(ProductionRun).filter(ProductionRun.company_id == company_id).delete(),
+        "products": db.query(Product).filter(Product.company_id == company_id).delete(),
+        "contractor_ledger_entries": db.query(ContractorLedgerEntry).filter(ContractorLedgerEntry.company_id == company_id).delete(),
+        "expenses": db.query(Expense).filter(Expense.company_id == company_id).delete(),
+        "uploads": db.query(Upload).filter(Upload.company_id == company_id).delete(),
+    }
+    db.commit()
+    return {"status": "reset", "deleted": deleted_counts}
+
+
 def clean(v):
     """Convert any pandas 'missing' representation (NaN, NaT, None, pd.NA)
     to a plain Python None, so it becomes a real SQL NULL instead of the

@@ -2,8 +2,10 @@ import { useState, useEffect } from "react";
 
 export default function ThemeToggle() {
   const [theme, setTheme] = useState("light");
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     let stored = null;
     try {
       stored = localStorage.getItem("dashboard-theme");
@@ -22,6 +24,10 @@ export default function ThemeToggle() {
     } catch (e) {
       // ignore if storage is unavailable
     }
+  }
+
+  if (!mounted) {
+    return <button className="theme-toggle" aria-hidden="true" />;
   }
 
   return (

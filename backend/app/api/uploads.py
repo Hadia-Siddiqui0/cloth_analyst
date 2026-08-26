@@ -1,13 +1,14 @@
+import os
 import shutil
 import uuid
 from pathlib import Path
 
 import pandas as pd
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Body, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.deps import get_current_company_id
+from app.core.deps import get_current_company_id, require_role
 from app.db.session import get_db
 from app.models.upload import Upload, UploadStatus
 from app.models.production_run import ProductionRun, ProductionStream
@@ -15,14 +16,91 @@ from app.models.product import Product
 from app.models.contractor_ledger import ContractorLedgerEntry
 from app.models.expense import Expense
 from app.services.ingestion_service import detect_and_parse_workbook, categorize_expense
+from app.services.ocr_service import process_register_image, OCRResult
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
+
+# Allowed file extensions
+ALLOWED_EXTENSIONS = {
+    # Excel formats
+    ".xlsx", ".xls",
+    # CSV
+    ".csv",
+    # Image formats for OCR
+    ".jpg", ".jpeg", ".png", ".webp", ".tiff", ".bmp",
+}
+
+# Maximum file size (in bytes)
+MAX_FILE_SIZE = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+
+def _sanitize_filename(filename: str) -> str:
+    """Sanitize filename to prevent path traversal and other attacks."""
+    # Remove any path separators
+    filename = os.path.basename(filename)
+    # Remove null bytes
+    filename = filename.replace("\x00", "")
+    # Remove any non-printable characters
+    filename = "".join(c for c in filename if c.isprintable())
+    # Limit length
+    if len(filename) > 255:
+        name, ext = os.path.splitext(filename)
+        filename = name[:250] + ext
+    return filename or "uploaded_file"
+
+
+def _validate_file_signature(file_path: str, expected_type: str) -> bool:
+    """Validate file type by checking file signature (magic numbers)."""
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(8)
+
+        # Excel (.xlsx) - ZIP signature (PK)
+        if expected_type in {".xlsx", ".xls"}:
+            # xlsx files are ZIP archives
+            if header[:4] == b'PK\x03\x04':
+                return True
+            # Older .xls files have different signature
+            if header[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1':
+                return True
+            return False
+
+        # CSV - check if text-based
+        if expected_type == ".csv":
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    f.read(1024)
+                return True
+            except UnicodeDecodeError:
+                try:
+                    with open(file_path, "r", encoding="latin-1") as f:
+                        f.read(1024)
+                    return True
+                except:
+                    return False
+
+        # Images
+        if expected_type in {".jpg", ".jpeg"}:
+            return header[:2] == b'\xff\xd8'
+        if expected_type == ".png":
+            return header[:8] == b'\x89PNG\r\n\x1a\n'
+        if expected_type == ".webp":
+            return header[:4] == b'RIFF' and header[4:8] == b'WEBP'
+        if expected_type in {".tiff", ".tif"}:
+            return header[:2] in (b'II', b'MM')
+        if expected_type == ".bmp":
+            return header[:2] == b'BM'
+
+        return True  # Unknown type, allow with caution
+    except Exception:
+        return False
 
 
 @router.delete("/reset")
 def reset_company_data(
     company_id: uuid.UUID = Depends(get_current_company_id),
     db: Session = Depends(get_db),
+    _current_user = Depends(require_role("ceo", "admin")),
 ):
     """Deletes every imported business record for the CURRENT company
     only (never touches other companies -- company_id comes from the
@@ -77,15 +155,89 @@ def upload_file(
     return a preview + mapping report. Nothing is written to the
     business tables yet -- that happens in /confirm, so a human can
     review the auto-detected mapping first (see Phase 2 of the roadmap:
-    the mapping engine is the riskiest piece, don't let it write blind)."""
+    the mapping engine is the riskiest piece, don't let it write blind).
+
+    SECURITY: Validates file type via magic numbers, sanitizes filename,
+    and enforces size limits to prevent malicious file uploads."""
+    # Sanitize the filename to prevent path traversal
+    safe_filename = _sanitize_filename(file.filename or "uploaded_file")
+
+    # Check file extension for quick rejection
+    file_ext = os.path.splitext(safe_filename)[1].lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type not allowed. Supported formats: Excel (.xlsx, .xls), CSV, Images (JPG, PNG, WebP, TIFF, BMP)"
+        )
+
+    # Create upload directory
     upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
-    stored_path = upload_dir / f"{uuid.uuid4()}_{file.filename}"
 
-    with stored_path.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    # Generate a safe, unique filename
+    stored_path = upload_dir / f"{uuid.uuid4()}_{safe_filename}"
 
-    parsed_sheets = detect_and_parse_workbook(str(stored_path))
+    # Write the file to disk
+    try:
+        with stored_path.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except Exception as e:
+        # Clean up partially written file
+        if stored_path.exists():
+            stored_path.unlink()
+        raise HTTPException(status_code=500, detail="Failed to save uploaded file")
+
+    # Validate file size after writing
+    file_size = stored_path.stat().st_size
+    if file_size > MAX_FILE_SIZE:
+        stored_path.unlink()
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {settings.MAX_UPLOAD_SIZE_MB}MB"
+        )
+
+    # Validate file signature (magic numbers)
+    if not _validate_file_signature(str(stored_path), file_ext):
+        stored_path.unlink()
+        raise HTTPException(
+            status_code=400,
+            detail=f"File content doesn't match its extension. Possible security risk."
+        )
+
+    # Check if this is an image file (for OCR)
+    is_image = file_ext in {".jpg", ".jpeg", ".png", ".webp", ".tiff", ".bmp"}
+
+    if is_image:
+        # For images, we'll store them for OCR processing later
+        # Create a placeholder result for now
+        upload = Upload(
+            company_id=company_id,
+            original_filename=file.filename,
+            stored_path=str(stored_path),
+            status=UploadStatus.UPLOADED,
+            column_mapping={},
+            validation_issues={"image": ["Image file uploaded. OCR processing pending."]},
+        )
+        db.add(upload)
+        db.commit()
+        db.refresh(upload)
+
+        return {
+            "upload_id": upload.id,
+            "file_type": "image",
+            "message": "Image uploaded successfully. OCR processing will extract business data.",
+            "next_step": "Please confirm to start OCR extraction",
+        }
+
+    # For Excel/CSV files, parse them
+    try:
+        parsed_sheets = detect_and_parse_workbook(str(stored_path))
+    except Exception as e:
+        stored_path.unlink()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not parse file. Please ensure it's a valid Excel or CSV file."
+        )
 
     upload = Upload(
         company_id=company_id,
@@ -115,6 +267,79 @@ def upload_file(
     }
 
 
+def _process_ocr_upload(upload: Upload, company_id: uuid.UUID, db: Session) -> dict:
+    """
+    Process an image upload through OCR.
+
+    Returns extracted data for human review. NEVER automatically imports.
+    OCR output must always be reviewed and confirmed by a human.
+    """
+    # Verify file still exists
+    if not os.path.exists(upload.stored_path):
+        raise HTTPException(
+            status_code=500,
+            detail="Uploaded file no longer exists. Please re-upload."
+        )
+
+    # Run OCR extraction
+    ocr_result = process_register_image(upload.stored_path)
+
+    # Check for OCR failures
+    if not ocr_result.raw_text:
+        upload.status = UploadStatus.FAILED
+        upload.validation_issues = {
+            "ocr": ocr_result.warnings or ["OCR extraction failed. No text found in image."]
+        }
+        db.commit()
+
+        return {
+            "upload_id": upload.id,
+            "status": "failed",
+            "message": "OCR extraction failed. Please ensure the image is clear and contains readable text.",
+            "warnings": ocr_result.warnings,
+        }
+
+    # Convert OCR result to structured data for review
+    extracted_records = []
+
+    # If tables were found, use them
+    if ocr_result.tables:
+        for i, table_df in enumerate(ocr_result.tables):
+            records = table_df.fillna("").to_dict(orient="records")
+            extracted_records.append({
+                "table_index": i,
+                "columns": list(table_df.columns),
+                "rows": records[:20],  # Limit preview to 20 rows
+                "total_rows": len(records),
+            })
+
+    # Store OCR result for later confirmation
+    upload.status = UploadStatus.VALIDATED  # Ready for human review
+    upload.validation_issues = {
+        "ocr_warnings": ocr_result.warnings,
+        "detected_language": ocr_result.detected_language,
+        "confidence": ocr_result.confidence,
+        "has_tables": bool(ocr_result.tables),
+    }
+    upload.column_mapping = {
+        "ocr_raw_text": ocr_result.raw_text[:5000],  # Store first 5000 chars for reference
+        "ocr_confidence": ocr_result.confidence,
+    }
+    db.commit()
+
+    return {
+        "upload_id": upload.id,
+        "status": "review_required",
+        "message": "OCR extraction complete. Please review and edit the extracted data before confirming.",
+        "detected_language": ocr_result.detected_language,
+        "confidence": ocr_result.confidence,
+        "warnings": ocr_result.warnings,
+        "raw_text_preview": ocr_result.raw_text[:1000] if ocr_result.raw_text else None,
+        "extracted_records": extracted_records,
+        "has_tables": bool(ocr_result.tables),
+    }
+
+
 @router.post("/{upload_id}/confirm")
 def confirm_import(
     upload_id: uuid.UUID,
@@ -124,6 +349,12 @@ def confirm_import(
     """Step 6: re-parse (mapping was already reviewed by the user via the
     frontend at this point) and actually write rows into the business
     tables, tagged with this upload's id for full traceability.
+
+    For images: triggers OCR extraction and returns structured data for
+    human review. OCR output is NEVER automatically imported - user must
+    review and confirm the extracted data separately.
+
+    For Excel/CSV: imports data directly after user confirmation.
 
     IMPORTANT: this REPLACES the company's existing business data rather
     than adding to it. Confirmed by testing: re-uploading the same file
@@ -143,6 +374,15 @@ def confirm_import(
     upload = db.query(Upload).filter(Upload.id == upload_id, Upload.company_id == company_id).first()
     if not upload:
         raise HTTPException(status_code=404, detail="Upload not found")
+
+    # Check if this is an image file (OCR required)
+    file_ext = os.path.splitext(upload.stored_path)[1].lower()
+    is_image = file_ext in {".jpg", ".jpeg", ".png", ".webp", ".tiff", ".bmp"}
+
+    if is_image:
+        # OCR flow: extract text and return for human review
+        # NEVER automatically import OCR data without review
+        return _process_ocr_upload(upload, company_id, db)
 
     db.query(ProductionRun).filter(ProductionRun.company_id == company_id).delete()
     db.query(Product).filter(Product.company_id == company_id).delete()
@@ -237,3 +477,132 @@ def confirm_import(
     db.commit()
 
     return {"upload_id": upload.id, "rows_imported": rows_imported, "status": "imported"}
+
+
+@router.post("/{upload_id}/confirm-ocr")
+def confirm_ocr_import(
+    upload_id: uuid.UUID,
+    records: list[dict] = Body(..., description="User-reviewed OCR records"),
+    company_id: uuid.UUID = Depends(get_current_company_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Step 7 (OCR only): Import user-confirmed OCR data.
+
+    This endpoint ONLY accepts data that has been reviewed and edited by a human.
+    The `records` parameter must contain the corrected/validated data from the frontend.
+
+    SECURITY: This is the ONLY way OCR data enters the database.
+    Raw OCR output never bypasses human review.
+    """
+    upload = db.query(Upload).filter(
+        Upload.id == upload_id,
+        Upload.company_id == company_id
+    ).first()
+    if not upload:
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    # Verify this is an OCR upload that has been reviewed
+    file_ext = os.path.splitext(upload.stored_path)[1].lower()
+    is_image = file_ext in {".jpg", ".jpeg", ".png", ".webp", ".tiff", ".bmp"}
+
+    if not is_image:
+        raise HTTPException(
+            status_code=400,
+            detail="This endpoint is only for OCR uploads. Use /confirm for Excel/CSV files."
+        )
+
+    if upload.status != UploadStatus.VALIDATED:
+        raise HTTPException(
+            status_code=400,
+            detail="OCR data must be reviewed before confirmation. Call /confirm first."
+        )
+
+    if not records:
+        raise HTTPException(
+            status_code=400,
+            detail="No records provided. Please review and confirm the extracted data."
+        )
+
+    # Clear existing data (same as regular confirm)
+    db.query(ProductionRun).filter(ProductionRun.company_id == company_id).delete()
+    db.query(Product).filter(Product.company_id == company_id).delete()
+    db.query(ContractorLedgerEntry).filter(ContractorLedgerEntry.company_id == company_id).delete()
+    db.query(Expense).filter(Expense.company_id == company_id).delete()
+
+    rows_imported = 0
+
+    # Process user-confirmed records
+    # Each record should have a 'type' field indicating the data type
+    for record in records:
+        record_type = record.get("type", "unknown")
+
+        if record_type == "production":
+            db.add(ProductionRun(
+                company_id=company_id,
+                date=clean(record.get("date")),
+                stream=ProductionStream.UNSPECIFIED,
+                article_label=clean(record.get("article")),
+                quantity=clean(record.get("quantity")),
+                cost_total=clean(record.get("cost_total")),
+                sale_price_piece=clean(record.get("sale_price_piece")),
+                revenue_total=clean(record.get("revenue_total")),
+                profit=clean(record.get("profit")),
+                source_upload_id=upload.id,
+                source_sheet="ocr_extracted",
+            ))
+            rows_imported += 1
+
+        elif record_type == "product":
+            db.add(Product(
+                company_id=company_id,
+                cloth_type=clean(record.get("cloth_type")),
+                article_code=clean(record.get("article_code")),
+                cost_per_meter=clean(record.get("cost_per_meter")),
+                cloth_meters_per_piece=clean(record.get("cloth_meters_per_piece")),
+                cloth_cost_per_piece=clean(record.get("cloth_cost_per_piece")),
+                stitching_cost_per_piece=clean(record.get("stitching_cost_per_piece")),
+                embroidery_cost_per_piece=clean(record.get("embroidery_cost_per_piece")),
+                washing_cost_per_piece=clean(record.get("washing_cost_per_piece")),
+                total_cost_per_piece=clean(record.get("total_cost_per_piece")),
+                sale_price_per_piece=clean(record.get("sale_price_per_piece")),
+                profit_per_piece=clean(record.get("profit_per_piece")),
+                source="ocr_verified",
+            ))
+            rows_imported += 1
+
+        elif record_type == "expense":
+            description = clean(record.get("description")) or ""
+            db.add(Expense(
+                company_id=company_id,
+                date=clean(record.get("date")),
+                description=description,
+                category=categorize_expense(description),
+                amount_received=clean(record.get("amount_received")),
+                amount_used=clean(record.get("amount_used")),
+                running_balance=clean(record.get("balance")),
+                source_upload_id=upload.id,
+            ))
+            rows_imported += 1
+
+        elif record_type == "ledger":
+            db.add(ContractorLedgerEntry(
+                company_id=company_id,
+                date=clean(record.get("date")),
+                amount_billed=clean(record.get("amount_billed")),
+                amount_paid=clean(record.get("amount_paid")),
+                running_balance=clean(record.get("balance")),
+                source_upload_id=upload.id,
+            ))
+            rows_imported += 1
+
+    upload.status = UploadStatus.IMPORTED
+    upload.rows_imported = rows_imported
+    db.commit()
+
+    return {
+        "upload_id": upload.id,
+        "rows_imported": rows_imported,
+        "status": "imported",
+        "source": "ocr_verified",
+    }

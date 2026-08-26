@@ -7,10 +7,13 @@ export default function Upload() {
   const router = useRouter();
   const fileInputRef = useRef(null);
   const [dragActive, setDragActive] = useState(false);
-  const [status, setStatus] = useState("idle"); // idle | uploading | preview | confirming | done
+  const [status, setStatus] = useState("idle"); // idle | uploading | preview | ocr_review | confirming | done
   const [preview, setPreview] = useState(null);
   const [uploadId, setUploadId] = useState(null);
   const [error, setError] = useState("");
+  const [isImage, setIsImage] = useState(false);
+  const [ocrData, setOcrData] = useState(null);
+  const [editedRecords, setEditedRecords] = useState([]);
 
   useEffect(() => {
     if (
@@ -25,15 +28,28 @@ export default function Upload() {
     if (!file) return;
     setError("");
     setStatus("uploading");
+
+    // Check if this is an image file
+    const imageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".tiff", ".bmp"];
+    const fileExt = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+    const isImageFile = imageExtensions.includes(fileExt);
+    setIsImage(isImageFile);
+
     try {
       const res = await uploads.upload(file);
       setPreview(res.data);
       setUploadId(res.data.upload_id);
-      setStatus("preview");
+
+      if (isImageFile) {
+        // For images, show a message that OCR will be triggered on confirm
+        setStatus("preview");
+      } else {
+        setStatus("preview");
+      }
     } catch (err) {
       setError(
         err.response?.data?.detail ||
-          "Could not read that file. Try a .xlsx or .csv export.",
+          "Could not read that file. Try a .xlsx, .csv, or image file.",
       );
       setStatus("idle");
     }
@@ -43,12 +59,84 @@ export default function Upload() {
     setStatus("confirming");
     setError("");
     try {
-      await uploads.confirm(uploadId);
+      const res = await uploads.confirm(uploadId);
+
+      // Check if OCR data was returned (needs human review)
+      if (res.data.status === "review_required") {
+        setOcrData(res.data);
+        setEditedRecords(res.data.extracted_records || []);
+        setStatus("ocr_review");
+      } else if (res.data.status === "failed") {
+        setError(res.data.message || "OCR extraction failed.");
+        setStatus("preview");
+      } else {
+        // Excel/CSV import successful
+        setStatus("done");
+        setTimeout(() => router.push("/dashboard"), 1200);
+      }
+    } catch (err) {
+      setError(err.response?.data?.detail || "Could not process this file.");
+      setStatus("preview");
+    }
+  }
+
+  async function handleOcrConfirm() {
+    setStatus("confirming");
+    setError("");
+    try {
+      // Flatten the extracted records for confirmation
+      const recordsToConfirm = [];
+      if (editedRecords && editedRecords.length > 0) {
+        for (const table of editedRecords) {
+          if (table.rows) {
+            for (const row of table.rows) {
+              // Add type inference based on columns
+              const record = { ...row, type: inferRecordType(row) };
+              recordsToConfirm.push(record);
+            }
+          }
+        }
+      }
+
+      await uploads.confirmOcr(uploadId, recordsToConfirm);
       setStatus("done");
       setTimeout(() => router.push("/dashboard"), 1200);
     } catch (err) {
-      setError(err.response?.data?.detail || "Could not import this file.");
-      setStatus("preview");
+      setError(err.response?.data?.detail || "Could not import OCR data.");
+      setStatus("ocr_review");
+    }
+  }
+
+  function inferRecordType(row) {
+    // Infer the type of record based on the fields present
+    const fields = Object.keys(row).map((k) => k.toLowerCase());
+    if (
+      fields.includes("article") ||
+      fields.includes("quantity") ||
+      fields.includes("profit")
+    ) {
+      return "production";
+    }
+    if (
+      fields.includes("cloth_type") ||
+      fields.includes("stitching_cost")
+    ) {
+      return "product";
+    }
+    if (fields.includes("description") || fields.includes("amount_used")) {
+      return "expense";
+    }
+    if (fields.includes("amount_billed") || fields.includes("amount_paid")) {
+      return "ledger";
+    }
+    return "production"; // Default
+  }
+
+  function handleRecordEdit(tableIndex, rowIndex, field, value) {
+    const updated = [...editedRecords];
+    if (updated[tableIndex] && updated[tableIndex].rows[rowIndex]) {
+      updated[tableIndex].rows[rowIndex][field] = value;
+      setEditedRecords(updated);
     }
   }
 
@@ -60,12 +148,12 @@ export default function Upload() {
   }
 
   return (
-    <main style={styles.main}>
+    <main className="upload-page">
       <ThemeToggle />
-      <div style={styles.container}>
-        <h1 style={styles.h1}>Upload your records</h1>
-        <p style={styles.subtitle}>
-          Drop in any Excel or CSV file. We'll show you what we found before
+      <div className="upload-container">
+        <h1 className="upload-title">Upload your records</h1>
+        <p className="upload-subtitle">
+          Drop in any Excel, CSV, or image file. We'll show you what we found before
           anything is saved.
         </p>
 
@@ -78,23 +166,19 @@ export default function Upload() {
             onDragLeave={() => setDragActive(false)}
             onDrop={onDrop}
             onClick={() => fileInputRef.current?.click()}
-            style={{
-              ...styles.dropzone,
-              borderColor: dragActive ? "var(--purple)" : "var(--panel-border)",
-              background: dragActive ? "var(--purple-soft)" : "var(--panel)",
-            }}
+            className={`upload-dropzone ${dragActive ? "active" : ""}`}
           >
             <div style={{ fontSize: 32, marginBottom: 10 }}>📄</div>
             <div style={{ fontWeight: 700, marginBottom: 4 }}>
               Drag a file here, or click to choose one
             </div>
-            <div style={{ fontSize: 13, color: "var(--ink-dim)" }}>
-              .xlsx, .xls, or .csv
+            <div style={{ fontSize: 13, color: "var(--text-faint)" }}>
+              .xlsx, .xls, .csv, or images (JPG, PNG, WebP)
             </div>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp"
               style={{ display: "none" }}
               onChange={(e) => handleFile(e.target.files?.[0])}
             />
@@ -102,42 +186,34 @@ export default function Upload() {
         )}
 
         {status === "uploading" && (
-          <div style={styles.statusText}>Reading your file...</div>
+          <div className="upload-status">Reading your file...</div>
         )}
 
-        {error && <div style={styles.error}>{error}</div>}
+        {error && <div className="upload-error">{error}</div>}
 
         {(status === "preview" ||
           status === "confirming" ||
           status === "done") &&
           preview && (
             <div>
-              <div style={styles.summaryBanner}>
+              <div className="upload-summary">
                 Found {preview.sheets.length} sheet
                 {preview.sheets.length !== 1 ? "s" : ""} in{" "}
-                <b>{preview.original_filename || "your file"}</b>. Review below,
+                <strong>{preview.original_filename || "your file"}</strong>. Review below,
                 then confirm to import.
               </div>
 
               {preview.sheets.map((sheet) => (
-                <div key={sheet.sheet_name} style={styles.sheetCard}>
-                  <div style={styles.sheetHeader}>
+                <div key={sheet.sheet_name} className="upload-sheet-card">
+                  <div className="upload-sheet-header">
                     <span style={{ fontWeight: 700 }}>{sheet.sheet_name}</span>
-                    <span style={styles.sheetType}>
-                      {sheet.detected_type.replace(/_/g, " ")}
-                    </span>
-                    <span
-                      style={{
-                        marginLeft: "auto",
-                        fontSize: 12.5,
-                        color: "var(--ink-dim)",
-                      }}
-                    >
+                    <span className="tag">{sheet.detected_type.replace(/_/g, " ")}</span>
+                    <span style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--text-faint)" }}>
                       {sheet.row_count} rows
                     </span>
                   </div>
                   {sheet.warnings?.length > 0 && (
-                    <div style={styles.warning}>
+                    <div className="upload-warning">
                       {sheet.warnings.map((w, i) => (
                         <div key={i}>⚠ {w}</div>
                       ))}
@@ -149,108 +225,150 @@ export default function Upload() {
               <button
                 onClick={handleConfirm}
                 disabled={status === "confirming" || status === "done"}
-                style={styles.button}
+                className="btn btn-primary"
+                style={{ width: "100%", marginTop: 20 }}
               >
                 {status === "confirming"
                   ? "Importing..."
                   : status === "done"
                     ? "Imported ✓"
-                    : "Confirm and import"}
+                    : isImage
+                      ? "Extract text with OCR"
+                      : "Confirm and import"}
               </button>
             </div>
           )}
+
+        {status === "ocr_review" && ocrData && (
+          <div>
+            <div className="upload-summary">
+              OCR extracted data from your image.{" "}
+              <strong>Please review and edit before confirming.</strong>
+              <br />
+              <span style={{ fontSize: 12, opacity: 0.8 }}>
+                Confidence: {Math.round((ocrData.confidence || 0) * 100)}% •
+                Language: {ocrData.detected_language || "unknown"}
+              </span>
+            </div>
+
+            {ocrData.warnings?.length > 0 && (
+              <div className="upload-warning">
+                {ocrData.warnings.map((w, i) => (
+                  <div key={i}>⚠ {w}</div>
+                ))}
+              </div>
+            )}
+
+            {ocrData.raw_text_preview && (
+              <div className="upload-sheet-card">
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>
+                  Raw Extracted Text (first 1000 chars)
+                </div>
+                <pre style={{
+                  fontSize: 11,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  maxHeight: 150,
+                  overflow: "auto",
+                  background: "var(--bg-soft)",
+                  padding: 8,
+                  borderRadius: 6,
+                  border: "1px solid var(--border)",
+                }}>
+                  {ocrData.raw_text_preview}
+                </pre>
+              </div>
+            )}
+
+            {editedRecords.length > 0 ? (
+              editedRecords.map((table, tableIdx) => (
+                <div key={tableIdx} className="upload-sheet-card">
+                  <div className="upload-sheet-header">
+                    <span style={{ fontWeight: 700 }}>
+                      Extracted Table {tableIdx + 1}
+                    </span>
+                    <span style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--text-faint)" }}>
+                      {table.total_rows || table.rows?.length || 0} rows
+                    </span>
+                  </div>
+
+                  {table.rows?.length > 0 && (
+                    <div style={{ marginTop: 12, overflowX: "auto" }}>
+                      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr>
+                            {table.columns?.map((col) => (
+                              <th key={col} style={styles.tableHeader}>{col}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {table.rows.slice(0, 30).map((row, rowIdx) => (
+                            <tr key={rowIdx}>
+                              {table.columns?.map((col) => (
+                                <td key={col} style={styles.tableCell}>
+                                  <input
+                                    type="text"
+                                    value={row[col] || ""}
+                                    onChange={(e) => handleRecordEdit(tableIdx, rowIdx, col, e.target.value)}
+                                    className="input"
+                                    style={{ padding: "6px 8px", fontSize: 12 }}
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {table.rows.length > 30 && (
+                        <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8 }}>
+                          Showing first 30 of {table.rows.length} rows. Rows beyond
+                          30 aren't shown here — import the first 30 to confirm
+                          the extraction looks right, then re-upload the rest in a
+                          second batch.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="upload-sheet-card">
+                <div style={{ color: "var(--text-faint)" }}>
+                  No tabular data could be extracted. The raw text above shows what was found.
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleOcrConfirm}
+              disabled={status === "confirming" || status === "done"}
+              className="btn btn-primary"
+              style={{ width: "100%", marginTop: 20 }}
+            >
+              {status === "confirming"
+                ? "Importing..."
+                : status === "done"
+                  ? "Imported ✓"
+                  : "Confirm and import reviewed data"}
+            </button>
+          </div>
+        )}
       </div>
     </main>
   );
 }
 
 const styles = {
-  main: {
-    minHeight: "100vh",
-    padding: "48px 24px",
-    display: "flex",
-    justifyContent: "center",
-  },
-  container: { width: "100%", maxWidth: 640 },
-  h1: {
-    fontSize: 26,
-    fontWeight: 800,
-    margin: "0 0 4px",
-    letterSpacing: "-0.02em",
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "var(--ink-dim)",
-    marginBottom: 28,
-    fontWeight: 500,
-  },
-  dropzone: {
-    border: "2px dashed var(--panel-border)",
-    borderRadius: 16,
-    padding: "48px 24px",
-    textAlign: "center",
-    cursor: "pointer",
-    transition: "background 0.15s ease, border-color 0.15s ease",
-  },
-  statusText: {
-    fontSize: 14,
-    color: "var(--ink-dim)",
-    fontWeight: 500,
-    padding: "20px 0",
-  },
-  error: {
-    marginTop: 16,
-    padding: "12px 16px",
-    borderRadius: 10,
-    background: "var(--coral-soft)",
-    color: "var(--coral)",
-    fontSize: 13.5,
-    fontWeight: 500,
-  },
-  summaryBanner: {
-    background: "var(--purple-soft)",
-    border: "1px solid var(--purple-soft-border)",
-    borderLeft: "4px solid var(--purple)",
-    borderRadius: 10,
-    padding: "14px 18px",
-    fontSize: 14,
-    color: "var(--purple-soft-text)",
-    marginBottom: 18,
-    fontWeight: 500,
-  },
-  sheetCard: {
-    background: "var(--panel)",
-    border: "1px solid var(--panel-border)",
-    borderRadius: 12,
-    padding: "14px 18px",
-    marginBottom: 10,
-  },
-  sheetHeader: { display: "flex", alignItems: "center", gap: 10 },
-  sheetType: {
-    fontSize: 11,
+  tableHeader: {
+    textAlign: "left",
+    padding: "8px 12px",
+    background: "var(--bg-soft)",
     fontWeight: 600,
-    color: "var(--indigo)",
-    background: "var(--indigo-soft)",
-    padding: "2px 8px",
-    borderRadius: 6,
-    textTransform: "capitalize",
+    borderBottom: "1px solid var(--border)",
   },
-  warning: {
-    marginTop: 8,
-    fontSize: 12.5,
-    color: "var(--gold)",
-    lineHeight: 1.6,
-  },
-  button: {
-    marginTop: 20,
-    width: "100%",
-    padding: "13px",
-    fontSize: 14,
-    fontWeight: 700,
-    borderRadius: 10,
-    border: "none",
-    background: "var(--purple)",
-    color: "white",
-    cursor: "pointer",
+  tableCell: {
+    padding: "4px 8px",
+    borderBottom: "1px solid var(--border)",
   },
 };

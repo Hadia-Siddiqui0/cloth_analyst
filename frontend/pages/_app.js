@@ -2,8 +2,6 @@ import { useEffect } from "react";
 import Head from "next/head";
 import "../styles/globals.css";
 
-// Applies the saved theme choice on every page, not just the dashboard,
-// so the toggle in ThemeToggle.js feels consistent app-wide.
 function useAppliedTheme() {
   useEffect(() => {
     let stored = null;
@@ -22,8 +20,9 @@ export default function App({ Component, pageProps }) {
     <>
       <Head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
-          href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@400;500;600;700&display=swap"
           rel="stylesheet"
         />
       </Head>

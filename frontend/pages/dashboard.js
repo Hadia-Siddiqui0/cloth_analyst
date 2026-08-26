@@ -1,12 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import Chart from "chart.js/auto";
-import KpiCard from "../src/components/KpiCard";
-import Section, {
-  StitchDivider,
-  BarRow,
-  Takeaway,
-} from "../src/components/Section";
+import ThemeToggle from "../src/components/ThemeToggle";
 import { dashboard } from "../src/services/api";
 import { rupees, signedRupees } from "../src/utils/format";
 
@@ -81,8 +76,8 @@ export default function Dashboard() {
   useEffect(() => {
     if (!data || !chartCanvasRef.current) return;
     const isDark = theme === "dark";
-    const tickColor = isDark ? "#9C93AE" : "#7A7566";
-    const gridColor = isDark ? "#2E2739" : "#E7DFCE";
+    const tickColor = isDark ? "#a79e8a" : "#726b5b";
+    const gridColor = isDark ? "#2b2822" : "#dcd4c2";
     const points = data.weeklyProfit;
 
     if (chartInstanceRef.current) chartInstanceRef.current.destroy();
@@ -94,9 +89,9 @@ export default function Dashboard() {
           {
             data: points.map((p) => p.profit),
             backgroundColor: points.map((p) =>
-              p.profit >= 0 ? "#7B2FF7" : "#FF4D6D",
+              p.profit >= 0 ? "#bd9349" : "#b0553f",
             ),
-            borderRadius: 5,
+            borderRadius: 3,
           },
         ],
       },
@@ -133,22 +128,11 @@ export default function Dashboard() {
     };
   }, [data, theme]);
 
-  function toggleTheme() {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    document.documentElement.setAttribute("data-theme", next);
-    try {
-      localStorage.setItem("dashboard-theme", next);
-    } catch (e) {
-      // ignore
-    }
-  }
-
   if (loading) {
-    return <main style={styles.centered}>Loading your dashboard...</main>;
+    return <main className="dash-centered">Loading your dashboard...</main>;
   }
   if (error) {
-    return <main style={styles.centered}>{error}</main>;
+    return <main className="dash-centered">{error}</main>;
   }
 
   const {
@@ -178,115 +162,121 @@ export default function Dashboard() {
   const goodWeeks = weeklyProfit.filter((p) => p.profit >= 0).length;
 
   return (
-    <main style={styles.main}>
-      <button
-        onClick={toggleTheme}
-        title="Switch theme"
-        style={styles.themeButton}
-      >
-        {theme === "dark" ? "☀️" : "🌙"}
-      </button>
+    <main className="dash-main">
+      <ThemeToggle />
 
-      <div style={styles.masthead}>
-        <h1 style={styles.h1}>Your Business</h1>
-        <span style={styles.stitchMark}>···</span>
-      </div>
-      <div style={styles.subtitle}>
-        {kpis.period_start && kpis.period_end
-          ? `Based on your records from ${kpis.period_start} to ${kpis.period_end}`
-          : "No records yet"}
+      <div className="dash-header">
+        <div>
+          <div className="eyebrow">Business Overview</div>
+          <h1 className="dash-title">Your Business</h1>
+        </div>
+        <div className="dash-meta">
+          {kpis.period_start && kpis.period_end
+            ? `${kpis.period_start} – ${kpis.period_end}`
+            : "No records yet"}
+        </div>
       </div>
 
-      <div style={styles.banner}>
+      <div className="dash-banner">
         <b>How this stays current.</b> Every number here comes straight from
         your uploaded records. Upload a new file any time from the Upload page
         and this page reflects it immediately, no rebuild needed.
       </div>
 
-      <div style={styles.kpiRow}>
-        <KpiCard
-          label="Money coming in"
-          value={rupees(kpis.total_revenue)}
-          sub="from sales recorded"
-        />
-        <KpiCard
-          label="Money going out"
-          value={rupees(kpis.total_cost)}
-          sub="materials, labor, overhead"
-        />
-        <KpiCard
-          label={profitGood ? "What you kept" : "What you lost"}
-          value={signedRupees(kpis.total_profit)}
-          sub={
-            profitGood
-              ? "good, this is your gain"
-              : "costs were higher than income"
-          }
-          tone={profitGood ? "good" : "bad"}
-        />
+      <div className="dash-kpi-row">
+        <div className="card dash-kpi">
+          <div className="stat-label">Money coming in</div>
+          <div className="stat-value">{rupees(kpis.total_revenue)}</div>
+          <div className="stat-sub">from sales recorded</div>
+        </div>
+        <div className="card dash-kpi">
+          <div className="stat-label">Money going out</div>
+          <div className="stat-value">{rupees(kpis.total_cost)}</div>
+          <div className="stat-sub">materials, labor, overhead</div>
+        </div>
+        <div className="card dash-kpi">
+          <div className="stat-label">
+            {profitGood ? "What you kept" : "What you lost"}
+          </div>
+          <div
+            className="stat-value"
+            style={{ color: profitGood ? "var(--positive)" : "var(--negative)" }}
+          >
+            {signedRupees(kpis.total_profit)}
+          </div>
+          <div className="stat-sub">
+            {profitGood ? "good, this is your gain" : "costs were higher than income"}
+          </div>
+        </div>
       </div>
 
-      <StitchDivider />
-
-      <Section
-        title="How much did you make each week?"
-        explain="Each bar is one week. Purple means you made money that week. Pink would mean you spent more than you earned."
-      >
+      <section className="card dash-section">
+        <div className="eyebrow">Weekly Performance</div>
+        <h2 className="dash-section-title">How much did you make each week?</h2>
+        <p className="dash-section-explain">
+          Each bar is one week. Gold means you made money that week. Red would
+          mean you spent more than you earned.
+        </p>
         <canvas ref={chartCanvasRef} style={{ maxHeight: 280 }} />
-        <Takeaway>
+        <p className="dash-takeaway">
           {weeklyProfit.length
             ? `Out of ${weeklyProfit.length} weeks shown, ${goodWeeks} were profitable.`
             : "Not enough weekly data yet to show a pattern."}
-        </Takeaway>
-      </Section>
+        </p>
+      </section>
 
       {why && (
-        <Section title="Why did it change?">
+        <section className="card dash-section">
+          <div className="eyebrow">Root Cause Intelligence</div>
+          <h2 className="dash-section-title">Why did it change?</h2>
           {why.flat_week ? (
-            <div style={{ fontSize: 13.5, color: "var(--ink-dim)" }}>
+            <p className="dash-section-explain">
               Your most recent two weeks ({why.prior_week} to {why.latest_week})
               were basically flat. No real change in money in or out to explain.
-            </div>
+            </p>
           ) : (
             <>
-              <div
-                style={{
-                  fontSize: 13.5,
-                  color: "var(--ink-dim)",
-                  marginBottom: 12,
-                }}
-              >
+              <p className="dash-section-explain">
                 Showing the {why.comparison_label}:{" "}
                 <b>
                   {why.prior_week} to {why.latest_week}
                 </b>
+              </p>
+
+              <div className="dash-kpi-row">
+                <div className="card dash-kpi">
+                  <div className="stat-label">Profit change</div>
+                  <div
+                    className="stat-value"
+                    style={{
+                      color:
+                        why.profit_change >= 0
+                          ? "var(--positive)"
+                          : "var(--negative)",
+                    }}
+                  >
+                    {(why.profit_change >= 0 ? "+" : "") +
+                      signedRupees(why.profit_change)}
+                  </div>
+                </div>
+                <div className="card dash-kpi">
+                  <div className="stat-label">Money in changed by</div>
+                  <div className="stat-value">
+                    {(why.revenue_change >= 0 ? "+" : "") +
+                      signedRupees(why.revenue_change)}
+                  </div>
+                </div>
+                <div className="card dash-kpi">
+                  <div className="stat-label">Money out changed by</div>
+                  <div className="stat-value">
+                    {(why.cost_change >= 0 ? "+" : "") +
+                      signedRupees(why.cost_change)}
+                  </div>
+                </div>
               </div>
-              <div style={styles.kpiRow}>
-                <KpiCard
-                  label="Profit change"
-                  value={
-                    (why.profit_change >= 0 ? "+" : "") +
-                    signedRupees(why.profit_change)
-                  }
-                  tone={why.profit_change >= 0 ? "good" : "bad"}
-                />
-                <KpiCard
-                  label="Money in changed by"
-                  value={
-                    (why.revenue_change >= 0 ? "+" : "") +
-                    signedRupees(why.revenue_change)
-                  }
-                />
-                <KpiCard
-                  label="Money out changed by"
-                  value={
-                    (why.cost_change >= 0 ? "+" : "") +
-                    signedRupees(why.cost_change)
-                  }
-                />
-              </div>
+
               {why.top_cost_driver && (
-                <Takeaway>
+                <p className="dash-takeaway">
                   The single biggest mover in your costs was{" "}
                   <b>{why.top_cost_driver}</b>, which{" "}
                   {why.top_cost_driver_change >= 0 ? "went up" : "went down"} by{" "}
@@ -294,36 +284,48 @@ export default function Dashboard() {
                   {why.top_cost_driver_change >= 0 && why.profit_change < 0
                     ? " That's the main reason profit dropped."
                     : ""}
-                </Takeaway>
+                </p>
               )}
             </>
           )}
-        </Section>
+        </section>
       )}
 
-      <Section
-        title="Which products make you the most money?"
-        explain={
-          sortedProducts.length && !sortedProducts[0].is_current
+      <section className="card dash-section">
+        <div className="eyebrow">Product Profitability</div>
+        <h2 className="dash-section-title">
+          Which products make you the most money?
+        </h2>
+        <p className="dash-section-explain">
+          {sortedProducts.length && !sortedProducts[0].is_current
             ? "Note: these are old, example prices, not today's real numbers. How much profit you make on ONE piece of each product."
-            : "How much profit you make on ONE piece of each product."
-        }
-      >
+            : "How much profit you make on ONE piece of each product."}
+        </p>
+
         {sortedProducts.map((p) => {
           const profit = p.profit_per_piece || 0;
           const pct = Math.round((Math.abs(profit) / maxProfitPerPiece) * 100);
           return (
-            <BarRow
-              key={p.cloth_type}
-              name={p.cloth_type}
-              amountLabel={`${signedRupees(profit)} / piece`}
-              pct={pct}
-              positive={profit >= 0}
-            />
+            <div className="dash-bar-row" key={p.cloth_type}>
+              <div className="dash-bar-label">
+                <span className="name">{p.cloth_type}</span>
+                <span className="amount">{signedRupees(profit)} / piece</span>
+              </div>
+              <div className="dash-bar-track">
+                <div
+                  className="dash-bar-fill"
+                  style={{
+                    width: `${pct}%`,
+                    background: profit >= 0 ? "var(--accent)" : "var(--negative)",
+                  }}
+                />
+              </div>
+            </div>
           );
         })}
+
         {lowestMargin && (
-          <Takeaway>
+          <p className="dash-takeaway">
             {lowestMargin.is_losing_money ? (
               <>
                 <b>{lowestMargin.cloth_type}</b> is currently losing you{" "}
@@ -337,39 +339,47 @@ export default function Dashboard() {
                 Still profitable, just the smallest margin.
               </>
             )}
-          </Takeaway>
+          </p>
         )}
-      </Section>
+      </section>
 
-      <Section
-        title="Where does your day to day cash go?"
-        explain="Small, everyday spending grouped into categories, biggest at the top."
-      >
+      <section className="card dash-section">
+        <div className="eyebrow">Cash Flow</div>
+        <h2 className="dash-section-title">Where does your day to day cash go?</h2>
+        <p className="dash-section-explain">
+          Small, everyday spending grouped into categories, biggest at the top.
+        </p>
+
         {expenseEntries.length ? (
           expenseEntries.map(([name, amt]) => (
-            <BarRow
-              key={name}
-              name={name}
-              amountLabel={rupees(amt)}
-              pct={Math.round((amt / maxExpense) * 100)}
-              positive={true}
-            />
+            <div className="dash-bar-row" key={name}>
+              <div className="dash-bar-label">
+                <span className="name">{name}</span>
+                <span className="amount">{rupees(amt)}</span>
+              </div>
+              <div className="dash-bar-track">
+                <div
+                  className="dash-bar-fill"
+                  style={{
+                    width: `${Math.round((amt / maxExpense) * 100)}%`,
+                    background: "var(--accent)",
+                  }}
+                />
+              </div>
+            </div>
           ))
         ) : (
-          <div style={{ fontSize: 13.5, color: "var(--ink-dim)" }}>
-            No spending data found yet.
-          </div>
+          <p className="dash-section-explain">No spending data found yet.</p>
         )}
-      </Section>
+      </section>
 
-      <StitchDivider />
-
-      <Section
-        title="Old contractor balance, not part of your current business"
-        secondary
-      >
+      <section className="card dash-section dash-section-secondary">
+        <div className="eyebrow">Historical</div>
+        <h2 className="dash-section-title">
+          Old contractor balance, not part of your current business
+        </h2>
         {contractor.balance !== null ? (
-          <div style={{ fontSize: 13.5, color: "var(--ink-dim)" }}>
+          <p className="dash-section-explain">
             You owed <b>{rupees(contractor.balance)}</b> to a contractor you
             used in the past. That balance has been{" "}
             <b>
@@ -380,15 +390,15 @@ export default function Dashboard() {
                   : "steady"}
             </b>
             . This isn't part of your current in-house business.
-          </div>
+          </p>
         ) : (
-          <div style={{ fontSize: 13.5, color: "var(--ink-dim)" }}>
+          <p className="dash-section-explain">
             No contractor balance found in this file.
-          </div>
+          </p>
         )}
-      </Section>
+      </section>
 
-      <div style={styles.footerNote}>
+      <div className="dash-footer-note">
         Built from {kpis.record_count} production records and {products.length}{" "}
         products in your file.
         <br />
@@ -398,78 +408,3 @@ export default function Dashboard() {
     </main>
   );
 }
-
-const styles = {
-  main: { maxWidth: 880, margin: "0 auto", padding: "32px 24px 70px" },
-  centered: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 14,
-    color: "var(--ink-dim)",
-  },
-  themeButton: {
-    position: "fixed",
-    top: 20,
-    right: 20,
-    width: 40,
-    height: 40,
-    borderRadius: "50%",
-    background: "var(--panel)",
-    border: "1px solid var(--panel-border)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    fontSize: 17,
-    boxShadow: "0 2px 8px var(--shadow-2)",
-  },
-  masthead: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 10,
-    marginBottom: 2,
-  },
-  h1: { fontSize: 26, fontWeight: 800, margin: 0, letterSpacing: "-0.02em" },
-  stitchMark: {
-    color: "var(--indigo)",
-    fontSize: 18,
-    opacity: 0.55,
-    letterSpacing: 2,
-  },
-  subtitle: {
-    color: "var(--ink-dim)",
-    fontSize: 14,
-    marginBottom: 22,
-    fontWeight: 500,
-  },
-  banner: {
-    background: "var(--purple-soft)",
-    border: "1px solid var(--purple-soft-border)",
-    borderLeft: "4px solid var(--purple)",
-    borderRadius: 10,
-    padding: "14px 18px",
-    fontSize: 14,
-    color: "var(--purple-soft-text)",
-    marginBottom: 14,
-    lineHeight: 1.6,
-    fontWeight: 500,
-  },
-  kpiRow: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    gap: 12,
-    margin: "22px 0",
-  },
-  footerNote: {
-    fontSize: 12.5,
-    color: "var(--ink-dim)",
-    marginTop: 22,
-    lineHeight: 1.7,
-    fontWeight: 500,
-    padding: "16px 18px",
-    border: "1px dashed var(--panel-border)",
-    borderRadius: 12,
-  },
-};

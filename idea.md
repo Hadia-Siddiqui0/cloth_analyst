@@ -814,16 +814,14 @@ Do not claim something works until you actually verify it.
 Unless the repository reveals a blocking issue, prioritize work approximately in this order:
 
 1. Inspect and understand the existing implementation.
-2. Finish OCR/register-photo workflow.
-3. Make universal Excel/CSV ingestion robust.
-4. Verify database/business calculations.
-5. Complete inventory and physical inventory flows.
-6. Add waste tracking.
-7. Complete alerts.
-8. Harden authentication/RBAC/tenant isolation.
-9. Perform full end-to-end testing.
-10. Build reliable AI analytics/predictions.
-11. Build recommendation/decision intelligence.
+2. Verify database/business calculations.
+3. Complete inventory and physical inventory flows.
+4. Add waste tracking.
+5. Complete alerts.
+6. Harden authentication/RBAC/tenant isolation.
+7. Perform full end-to-end testing.
+8. Build reliable AI analytics/predictions.
+9. Build recommendation/decision intelligence.
 
 ---
 

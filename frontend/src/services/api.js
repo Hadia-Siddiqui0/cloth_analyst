@@ -46,6 +46,8 @@ export const uploads = {
     });
   },
   confirm: (uploadId) => api.post(`/api/uploads/${uploadId}/confirm`),
+  confirmOcr: (uploadId, records) =>
+    api.post(`/api/uploads/${uploadId}/confirm-ocr`, records),
 };
 
 export const dashboard = {
@@ -58,6 +60,16 @@ export const dashboard = {
   lowestMarginProduct: () => api.get("/api/dashboard/products/lowest-margin"),
   expenseCategories: () => api.get("/api/dashboard/expenses/categories"),
   contractor: () => api.get("/api/dashboard/contractor"),
+};
+
+export const receivables = {
+  summary: () => api.get("/api/receivables/summary"),
+  customers: () => api.get("/api/receivables/customers"),
+  createCustomer: (payload) => api.post("/api/receivables/customers", payload),
+  payments: () => api.get("/api/receivables/payments"),
+  createPayment: (payload) => api.post("/api/receivables/payments", payload),
+  markPaid: (paymentId, payload) =>
+    api.patch(`/api/receivables/payments/${paymentId}/mark-paid`, payload),
 };
 
 export default api;

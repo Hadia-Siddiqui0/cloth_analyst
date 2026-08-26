@@ -281,31 +281,35 @@ export default function Upload() {
             )}
 
             {editedRecords.length > 0 ? (
-              editedRecords.map((table, tableIdx) => (
+              editedRecords.map((table, tableIdx) => {
+                const rows = table.rows || [];
+                const columns = table.columns || [];
+                const totalRows = table.total_rows || rows.length;
+                return (
                 <div key={tableIdx} className="upload-sheet-card">
                   <div className="upload-sheet-header">
                     <span style={{ fontWeight: 700 }}>
                       Extracted Table {tableIdx + 1}
                     </span>
                     <span style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--text-faint)" }}>
-                      {table.total_rows || table.rows?.length || 0} rows
+                      {totalRows} rows
                     </span>
                   </div>
 
-                  {table.rows?.length > 0 && (
+                  {rows.length > 0 && (
                     <div style={{ marginTop: 12, overflowX: "auto" }}>
                       <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
                         <thead>
                           <tr>
-                            {table.columns?.map((col) => (
+                            {columns.map((col) => (
                               <th key={col} style={styles.tableHeader}>{col}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {table.rows.slice(0, 30).map((row, rowIdx) => (
+                          {rows.slice(0, 30).map((row, rowIdx) => (
                             <tr key={rowIdx}>
-                              {table.columns?.map((col) => (
+                              {columns.map((col) => (
                                 <td key={col} style={styles.tableCell}>
                                   <input
                                     type="text"
@@ -320,9 +324,9 @@ export default function Upload() {
                           ))}
                         </tbody>
                       </table>
-                      {table.rows.length > 30 && (
+                      {rows.length > 30 && (
                         <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8 }}>
-                          Showing first 30 of {table.rows.length} rows. Rows beyond
+                          Showing first 30 of {rows.length} rows. Rows beyond
                           30 aren't shown here — import the first 30 to confirm
                           the extraction looks right, then re-upload the rest in a
                           second batch.
@@ -331,7 +335,8 @@ export default function Upload() {
                     </div>
                   )}
                 </div>
-              ))
+                );
+              })
             ) : (
               <div className="upload-sheet-card">
                 <div style={{ color: "var(--text-faint)" }}>

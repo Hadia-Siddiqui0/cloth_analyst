@@ -83,11 +83,10 @@ def signup(payload: SignupRequest, request: Request, db: Session = Depends(get_d
     if existing:
         # Record failed attempt for rate limiting
         _record_failed_attempt(client_ip)
-        # Use same error message to prevent account enumeration
-        # but with a subtle hint that's not obvious to attackers
+        # Be specific: email already registered
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unable to create account. Please try with different details."
+            detail="An account with this email already exists. Please sign in instead."
         )
 
     # MVP: signup creates a brand-new company. Later (multi-user companies)
@@ -138,13 +137,20 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         hash_password("dummy_password_for_timing")
         password_valid = False
 
-    if not user or not password_valid:
-        # Record failed attempt
+    if not user:
+        # User doesn't exist - be specific
         _record_failed_attempt(client_ip)
-        # Generic error message to prevent account enumeration
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password"
+            detail="No account found with this email. Please sign up first."
+        )
+
+    if not password_valid:
+        # Wrong password
+        _record_failed_attempt(client_ip)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect password. Please try again."
         )
 
     if not user.is_active:

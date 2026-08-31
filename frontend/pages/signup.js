@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import ThemeToggle from "../src/components/ThemeToggle";
 import { auth } from "../src/services/api";
+import { extractErrorMessage } from "../src/utils/errorHandler";
 
 export default function Signup() {
   const router = useRouter();
@@ -29,7 +30,7 @@ export default function Signup() {
       router.push("/upload");
     } catch (err) {
       const detail = err.response?.data?.detail;
-      setError(detail || "Could not create the account.");
+      setError(extractErrorMessage(detail) || "Could not create the account.");
     } finally {
       setLoading(false);
     }

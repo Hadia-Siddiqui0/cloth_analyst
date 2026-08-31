@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import ThemeToggle from "../src/components/ThemeToggle";
 import { auth } from "../src/services/api";
+import { extractErrorMessage } from "../src/utils/errorHandler";
 
 export default function Login() {
   const router = useRouter();
@@ -22,7 +23,7 @@ export default function Login() {
       router.push("/dashboard");
     } catch (err) {
       const detail = err.response?.data?.detail;
-      setError(detail || "Could not sign in. Check your email and password.");
+      setError(extractErrorMessage(detail) || "Could not sign in. Check your email and password.");
     } finally {
       setLoading(false);
     }

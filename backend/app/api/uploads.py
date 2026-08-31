@@ -521,7 +521,7 @@ def confirm_ocr_import(
     if not records:
         raise HTTPException(
             status_code=400,
-            detail="No records provided. Please review and confirm the extracted data."
+            detail="No records provided. OCR did not extract any tabular data. Please try a clearer image or use Excel/CSV upload instead."
         )
 
     # Clear existing data (same as regular confirm)

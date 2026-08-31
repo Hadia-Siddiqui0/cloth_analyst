@@ -41,9 +41,8 @@ export const uploads = {
   upload: (file) => {
     const form = new FormData();
     form.append("file", file);
-    return api.post("/api/uploads/", form, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
+    // Do NOT set Content-Type header - let browser set it with boundary
+    return api.post("/api/uploads/", form);
   },
   confirm: (uploadId) => api.post(`/api/uploads/${uploadId}/confirm`),
   confirmOcr: (uploadId, records) =>

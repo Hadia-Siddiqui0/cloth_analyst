@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import ThemeToggle from "../src/components/ThemeToggle";
 import { uploads } from "../src/services/api";
+import { extractErrorMessage } from "../src/utils/errorHandler";
 
 export default function Upload() {
   const router = useRouter();
@@ -48,7 +49,7 @@ export default function Upload() {
       }
     } catch (err) {
       setError(
-        err.response?.data?.detail ||
+        extractErrorMessage(err.response?.data?.detail) ||
           "Could not read that file. Try a .xlsx, .csv, or image file.",
       );
       setStatus("idle");
@@ -75,7 +76,9 @@ export default function Upload() {
         setTimeout(() => router.push("/dashboard"), 1200);
       }
     } catch (err) {
-      setError(err.response?.data?.detail || "Could not process this file.");
+      setError(
+        extractErrorMessage(err.response?.data?.detail) || "Could not process this file."
+      );
       setStatus("preview");
     }
   }
@@ -102,7 +105,9 @@ export default function Upload() {
       setStatus("done");
       setTimeout(() => router.push("/dashboard"), 1200);
     } catch (err) {
-      setError(err.response?.data?.detail || "Could not import OCR data.");
+      setError(
+        extractErrorMessage(err.response?.data?.detail) || "Could not import OCR data."
+      );
       setStatus("ocr_review");
     }
   }
@@ -196,46 +201,78 @@ export default function Upload() {
           status === "done") &&
           preview && (
             <div>
-              <div className="upload-summary">
-                Found {preview.sheets.length} sheet
-                {preview.sheets.length !== 1 ? "s" : ""} in{" "}
-                <strong>{preview.original_filename || "your file"}</strong>. Review below,
-                then confirm to import.
-              </div>
-
-              {preview.sheets.map((sheet) => (
-                <div key={sheet.sheet_name} className="upload-sheet-card">
-                  <div className="upload-sheet-header">
-                    <span style={{ fontWeight: 700 }}>{sheet.sheet_name}</span>
-                    <span className="tag">{sheet.detected_type.replace(/_/g, " ")}</span>
-                    <span style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--text-faint)" }}>
-                      {sheet.row_count} rows
+              {/* Check if this is an image upload response (no sheets) */}
+              {preview.file_type === "image" ? (
+                // Image upload preview
+                <div>
+                  <div className="upload-summary">
+                    <strong>{preview.original_filename || "your image"}</strong> uploaded.
+                    {" "}
+                    <span style={{ fontSize: 12, color: "var(--text-faint)" }}>
+                      OCR will extract text when you confirm.
                     </span>
                   </div>
-                  {sheet.warnings?.length > 0 && (
-                    <div className="upload-warning">
-                      {sheet.warnings.map((w, i) => (
-                        <div key={i}>⚠ {w}</div>
-                      ))}
+                  {preview.message && (
+                    <div className="upload-sheet-card" style={{ textAlign: "center", padding: 20 }}>
+                      {preview.message}
                     </div>
                   )}
+                  <button
+                    onClick={handleConfirm}
+                    disabled={status === "confirming" || status === "done"}
+                    className="btn btn-primary"
+                    style={{ width: "100%", marginTop: 20 }}
+                  >
+                    {status === "confirming"
+                      ? "Extracting with OCR..."
+                      : status === "done"
+                        ? "Imported ✓"
+                        : "Extract text with OCR"}
+                  </button>
                 </div>
-              ))}
+              ) : (
+                // Excel/CSV preview (has sheets array)
+                <div>
+                  <div className="upload-summary">
+                    Found {preview.sheets?.length || 0} sheet
+                    {preview.sheets?.length !== 1 ? "s" : ""} in{" "}
+                    <strong>{preview.original_filename || "your file"}</strong>. Review below,
+                    then confirm to import.
+                  </div>
 
-              <button
-                onClick={handleConfirm}
-                disabled={status === "confirming" || status === "done"}
-                className="btn btn-primary"
-                style={{ width: "100%", marginTop: 20 }}
-              >
-                {status === "confirming"
-                  ? "Importing..."
-                  : status === "done"
-                    ? "Imported ✓"
-                    : isImage
-                      ? "Extract text with OCR"
-                      : "Confirm and import"}
-              </button>
+                  {preview.sheets?.map((sheet) => (
+                    <div key={sheet.sheet_name} className="upload-sheet-card">
+                      <div className="upload-sheet-header">
+                        <span style={{ fontWeight: 700 }}>{sheet.sheet_name}</span>
+                        <span className="tag">{sheet.detected_type?.replace(/_/g, " ")}</span>
+                        <span style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--text-faint)" }}>
+                          {sheet.row_count} rows
+                        </span>
+                      </div>
+                      {sheet.warnings?.length > 0 && (
+                        <div className="upload-warning">
+                          {sheet.warnings.map((w, i) => (
+                            <div key={i}>⚠ {w}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  <button
+                    onClick={handleConfirm}
+                    disabled={status === "confirming" || status === "done"}
+                    className="btn btn-primary"
+                    style={{ width: "100%", marginTop: 20 }}
+                  >
+                    {status === "confirming"
+                      ? "Importing..."
+                      : status === "done"
+                        ? "Imported ✓"
+                        : "Confirm and import"}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -251,7 +288,7 @@ export default function Upload() {
               </span>
             </div>
 
-            {ocrData.warnings?.length > 0 && (
+            {ocrData?.warnings?.length > 0 && (
               <div className="upload-warning">
                 {ocrData.warnings.map((w, i) => (
                   <div key={i}>⚠ {w}</div>
@@ -280,7 +317,7 @@ export default function Upload() {
               </div>
             )}
 
-            {editedRecords.length > 0 ? (
+            {editedRecords?.length > 0 ? (
               editedRecords.map((table, tableIdx) => {
                 const rows = table.rows || [];
                 const columns = table.columns || [];
@@ -345,18 +382,26 @@ export default function Upload() {
               </div>
             )}
 
-            <button
-              onClick={handleOcrConfirm}
-              disabled={status === "confirming" || status === "done"}
-              className="btn btn-primary"
-              style={{ width: "100%", marginTop: 20 }}
-            >
-              {status === "confirming"
-                ? "Importing..."
-                : status === "done"
-                  ? "Imported ✓"
-                  : "Confirm and import reviewed data"}
-            </button>
+            {editedRecords?.length > 0 ? (
+              <button
+                onClick={handleOcrConfirm}
+                disabled={status === "confirming" || status === "done"}
+                className="btn btn-primary"
+                style={{ width: "100%", marginTop: 20 }}
+              >
+                {status === "confirming"
+                  ? "Importing..."
+                  : status === "done"
+                    ? "Imported ✓"
+                    : "Confirm and import reviewed data"}
+              </button>
+            ) : (
+              <div className="upload-warning" style={{ marginTop: 20 }}>
+                Cannot confirm import: no tabular data was extracted.
+                <br />
+                <small>Try a clearer photo with a visible table structure, or manually enter the data via Excel/CSV upload.</small>
+              </div>
+            )}
           </div>
         )}
       </div>

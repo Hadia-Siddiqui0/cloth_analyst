@@ -4,6 +4,7 @@ import Link from "next/link";
 import ThemeToggle from "../src/components/ThemeToggle";
 import { receivables } from "../src/services/api";
 import { rupees, signedRupees } from "../src/utils/format";
+import { extractErrorMessage } from "../src/utils/errorHandler";
 
 export default function Receivables() {
   const router = useRouter();
@@ -45,7 +46,7 @@ export default function Receivables() {
       setPayments(paymentsRes.data);
       setCustomers(customersRes.data);
     } catch (err) {
-      setError(err.response?.data?.detail || "Could not load receivables.");
+      setError(extractErrorMessage(err.response?.data?.detail) || "Could not load receivables.");
     } finally {
       setLoading(false);
     }
@@ -114,7 +115,7 @@ export default function Receivables() {
       setNewCustomer({ name: "", customer_type: "", contact_info: "", credit_terms_days: "" });
       setShowAddCustomer(false);
     } catch (err) {
-      setFormErrors({ customer: err.response?.data?.detail || "Failed to create customer" });
+      setFormErrors({ customer: extractErrorMessage(err.response?.data?.detail) || "Failed to create customer" });
     }
   }
 
@@ -136,7 +137,7 @@ export default function Receivables() {
       setShowAddPayment(false);
       loadAll();
     } catch (err) {
-      setFormErrors({ payment: err.response?.data?.detail || "Failed to create payment" });
+      setFormErrors({ payment: extractErrorMessage(err.response?.data?.detail) || "Failed to create payment" });
     }
   }
 
@@ -146,7 +147,7 @@ export default function Receivables() {
       setPayments(payments.map((p) => (p.id === paymentId ? res.data : p)));
       loadAll();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to mark paid");
+      setError(extractErrorMessage(err.response?.data?.detail) || "Failed to mark paid");
     }
   }
 

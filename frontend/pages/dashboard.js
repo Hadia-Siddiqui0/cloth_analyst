@@ -4,6 +4,7 @@ import Chart from "chart.js/auto";
 import ThemeToggle from "../src/components/ThemeToggle";
 import { dashboard } from "../src/services/api";
 import { rupees, signedRupees } from "../src/utils/format";
+import { extractErrorMessage } from "../src/utils/errorHandler";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -62,7 +63,7 @@ export default function Dashboard() {
         });
       } catch (err) {
         setError(
-          err.response?.data?.detail ||
+          extractErrorMessage(err.response?.data?.detail) ||
             "Could not load your dashboard. Try refreshing.",
         );
       } finally {

@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import uuid
@@ -267,37 +268,66 @@ def upload_file(
     }
 
 
+import logging
+logger = logging.getLogger(__name__)
+
 def _process_ocr_upload(upload: Upload, company_id: uuid.UUID, db: Session) -> dict:
     """
     Process an image upload through OCR.
 
     Returns extracted data for human review. NEVER automatically imports.
     OCR output must always be reviewed and confirmed by a human.
+
+    Returns:
+        dict with status:
+        - "review_required": OCR found text (with or without tables). User can review.
+        - "failed": OCR could not extract any text. User needs to try a different image.
     """
+    logger.info(f"[UPLOAD] _process_ocr_upload started for upload_id={upload.id}, path={upload.stored_path}")
+
     # Verify file still exists
     if not os.path.exists(upload.stored_path):
+        logger.error(f"[UPLOAD] File not found: {upload.stored_path}")
         raise HTTPException(
             status_code=500,
             detail="Uploaded file no longer exists. Please re-upload."
         )
 
+    logger.info(f"[UPLOAD] File exists, size={os.path.getsize(upload.stored_path)} bytes")
+
     # Run OCR extraction
+    logger.info("[UPLOAD] Calling process_register_image...")
     ocr_result = process_register_image(upload.stored_path)
 
-    # Check for OCR failures
-    if not ocr_result.raw_text:
+    logger.info(f"[UPLOAD] OCR result: raw_text_len={len(ocr_result.raw_text)}, tables={len(ocr_result.tables)}, confidence={ocr_result.confidence}, warnings={ocr_result.warnings}, detected_language={ocr_result.detected_language}")
+
+    # Check for OCR failures - no text at all
+    if not ocr_result.raw_text or not ocr_result.raw_text.strip():
+        logger.warning("[UPLOAD] No raw_text from OCR - marking as failed")
         upload.status = UploadStatus.FAILED
         upload.validation_issues = {
             "ocr": ocr_result.warnings or ["OCR extraction failed. No text found in image."]
         }
         db.commit()
 
+        # Build a more informative error message based on warnings
+        warnings = ocr_result.warnings or []
+        if any("not installed" in w.lower() for w in warnings):
+            message = "OCR service is not available on the server. Please try again later."
+        elif any("failed" in w.lower() for w in warnings):
+            message = "OCR processing encountered an error. The image format may be unsupported or corrupted."
+        else:
+            message = "Could not extract any text from this image. Please ensure the image is clear, well-lit, and contains readable text. You can also try uploading your data as an Excel or CSV file instead."
+
         return {
             "upload_id": upload.id,
             "status": "failed",
-            "message": "OCR extraction failed. Please ensure the image is clear and contains readable text.",
+            "message": message,
             "warnings": ocr_result.warnings,
         }
+
+    # Text was found - proceed to review (even if no tables detected)
+    logger.info(f"[UPLOAD] Text found ({len(ocr_result.raw_text)} chars), proceeding to review")
 
     # Convert OCR result to structured data for review
     extracted_records = []
@@ -312,6 +342,8 @@ def _process_ocr_upload(upload: Upload, company_id: uuid.UUID, db: Session) -> d
                 "rows": records[:20],  # Limit preview to 20 rows
                 "total_rows": len(records),
             })
+    else:
+        logger.info("[UPLOAD] No table structure detected - user will see raw text for manual review")
 
     # Store OCR result for later confirmation
     upload.status = UploadStatus.VALIDATED  # Ready for human review
@@ -371,17 +403,23 @@ def confirm_import(
     commit at the end), so if parsing/inserting the new file fails
     partway through, the rollback restores the old data instead of
     leaving the company with nothing."""
+    logger.info(f"[UPLOAD] confirm_import called for upload_id={upload_id}")
     upload = db.query(Upload).filter(Upload.id == upload_id, Upload.company_id == company_id).first()
     if not upload:
+        logger.warning(f"[UPLOAD] Upload not found: {upload_id}")
         raise HTTPException(status_code=404, detail="Upload not found")
+
+    logger.info(f"[UPLOAD] Found upload: id={upload.id}, status={upload.status}, path={upload.stored_path}")
 
     # Check if this is an image file (OCR required)
     file_ext = os.path.splitext(upload.stored_path)[1].lower()
     is_image = file_ext in {".jpg", ".jpeg", ".png", ".webp", ".tiff", ".bmp"}
+    logger.info(f"[UPLOAD] File extension: {file_ext}, is_image: {is_image}")
 
     if is_image:
         # OCR flow: extract text and return for human review
         # NEVER automatically import OCR data without review
+        logger.info("[UPLOAD] Routing to _process_ocr_upload")
         return _process_ocr_upload(upload, company_id, db)
 
     db.query(ProductionRun).filter(ProductionRun.company_id == company_id).delete()
@@ -495,11 +533,13 @@ def confirm_ocr_import(
     SECURITY: This is the ONLY way OCR data enters the database.
     Raw OCR output never bypasses human review.
     """
+    logger.info(f"[UPLOAD] confirm_ocr_import called for upload_id={upload_id}, records_count={len(records)}")
     upload = db.query(Upload).filter(
         Upload.id == upload_id,
         Upload.company_id == company_id
     ).first()
     if not upload:
+        logger.warning(f"[UPLOAD] Upload not found: {upload_id}")
         raise HTTPException(status_code=404, detail="Upload not found")
 
     # Verify this is an OCR upload that has been reviewed
@@ -507,18 +547,21 @@ def confirm_ocr_import(
     is_image = file_ext in {".jpg", ".jpeg", ".png", ".webp", ".tiff", ".bmp"}
 
     if not is_image:
+        logger.warning(f"[UPLOAD] Not an image file: {file_ext}")
         raise HTTPException(
             status_code=400,
             detail="This endpoint is only for OCR uploads. Use /confirm for Excel/CSV files."
         )
 
     if upload.status != UploadStatus.VALIDATED:
+        logger.warning(f"[UPLOAD] Invalid status for OCR confirm: {upload.status}")
         raise HTTPException(
             status_code=400,
             detail="OCR data must be reviewed before confirmation. Call /confirm first."
         )
 
     if not records:
+        logger.warning("[UPLOAD] No records provided for OCR confirmation")
         raise HTTPException(
             status_code=400,
             detail="No records provided. OCR did not extract any tabular data. Please try a clearer image or use Excel/CSV upload instead."

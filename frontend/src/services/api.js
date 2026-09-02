@@ -44,6 +44,9 @@ export const uploads = {
     // Do NOT set Content-Type header - let browser set it with boundary
     return api.post("/api/uploads/", form);
   },
+  analyze: (uploadId) => api.post(`/api/uploads/${uploadId}/analyze`),
+  saveMappings: (uploadId, mappings) => api.post(`/api/uploads/${uploadId}/map`, mappings),
+  confirmUniversal: (uploadId) => api.post(`/api/uploads/${uploadId}/confirm-universal`),
   confirm: (uploadId) => api.post(`/api/uploads/${uploadId}/confirm`),
   confirmOcr: (uploadId, records) =>
     api.post(`/api/uploads/${uploadId}/confirm-ocr`, records),

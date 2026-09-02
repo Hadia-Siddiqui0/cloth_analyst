@@ -18,6 +18,14 @@ from app.models.contractor_ledger import ContractorLedgerEntry
 from app.models.expense import Expense
 from app.services.ingestion_service import detect_and_parse_workbook, categorize_expense
 from app.services.ocr_service import process_register_image, OCRResult
+from app.services.universal_ingestion import (
+    parse_workbook_universal,
+    parse_workbook_with_mappings,
+    get_sheet_summary,
+    apply_user_mappings,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
@@ -268,8 +276,297 @@ def upload_file(
     }
 
 
-import logging
-logger = logging.getLogger(__name__)
+# ============================================================
+# UNIVERSAL INGESTION ENDPOINTS (New flexible ingestion flow)
+# ============================================================
+
+@router.post("/{upload_id}/analyze")
+def analyze_upload(
+    upload_id: uuid.UUID,
+    company_id: uuid.UUID = Depends(get_current_company_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Analyze an uploaded file with universal ingestion engine.
+    Returns detailed sheet analysis with confidence scores, column detection,
+    and suggested mappings for user review before import.
+    """
+    logger.info(f"[UNIVERSAL] analyze_upload called for upload_id={upload_id}")
+    upload = db.query(Upload).filter(Upload.id == upload_id, Upload.company_id == company_id).first()
+    if not upload:
+        logger.warning(f"[UNIVERSAL] Upload not found: {upload_id}")
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    # Check if this is an image file
+    file_ext = os.path.splitext(upload.stored_path)[1].lower()
+    is_image = file_ext in {".jpg", ".jpeg", ".png", ".webp", ".tiff", ".bmp"}
+
+    if is_image:
+        raise HTTPException(
+            status_code=400,
+            detail="Image files require OCR processing. Use /confirm for OCR extraction."
+        )
+
+    # Parse with universal engine
+    try:
+        parsed_results = parse_workbook_universal(upload.stored_path)
+    except Exception as e:
+        logger.error(f"[UNIVERSAL] Parse failed: {e}")
+        raise HTTPException(status_code=400, detail=f"Could not parse file: {str(e)}")
+
+    # Build detailed analysis for each sheet
+    sheets_analysis = []
+    for result in parsed_results:
+        summary = get_sheet_summary(result)
+        sheets_analysis.append(summary)
+
+    # Update upload with universal analysis
+    upload.status = UploadStatus.MAPPED
+    upload.column_mapping = {
+        r.sheet_name: r.analysis.suggested_mappings for r in parsed_results
+    }
+    upload.validation_issues = {
+        r.sheet_name: r.warnings for r in parsed_results if r.warnings
+    }
+    db.commit()
+
+    return {
+        "upload_id": upload.id,
+        "original_filename": upload.original_filename,
+        "sheets": sheets_analysis,
+        "message": "Analysis complete. Review column mappings and confirm to import.",
+    }
+
+
+@router.post("/{upload_id}/map")
+def save_column_mappings(
+    upload_id: uuid.UUID,
+    mappings: dict = Body(..., description="Column mappings per sheet: {sheet_name: {standard_field: original_column}}"),
+    company_id: uuid.UUID = Depends(get_current_company_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Save user-provided column mappings for an upload.
+    This allows users to correct/override auto-detected mappings before import.
+    """
+    logger.info(f"[UNIVERSAL] save_column_mappings for upload_id={upload_id}")
+    upload = db.query(Upload).filter(Upload.id == upload_id, Upload.company_id == company_id).first()
+    if not upload:
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    # Store user mappings in the upload record
+    upload.column_mapping = mappings
+    upload.status = UploadStatus.MAPPED
+    db.commit()
+
+    return {
+        "upload_id": upload.id,
+        "status": "mappings_saved",
+        "message": "Column mappings saved. You can now confirm to import with these mappings.",
+    }
+
+
+@router.post("/{upload_id}/confirm-universal")
+def confirm_universal_import(
+    upload_id: uuid.UUID,
+    company_id: uuid.UUID = Depends(get_current_company_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Import data using universal ingestion with user-confirmed mappings.
+
+    This replaces the company's existing business data (same as regular confirm)
+    but uses the universal parser which can handle any file structure.
+
+    Mappings are read from upload.column_mapping (saved via /map endpoint).
+    """
+    logger.info(f"[UNIVERSAL] confirm_universal_import for upload_id={upload_id}")
+    upload = db.query(Upload).filter(Upload.id == upload_id, Upload.company_id == company_id).first()
+    if not upload:
+        logger.warning(f"[UNIVERSAL] Upload not found: {upload_id}")
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    # Check if this is an image file
+    file_ext = os.path.splitext(upload.stored_path)[1].lower()
+    is_image = file_ext in {".jpg", ".jpeg", ".png", ".webp", ".tiff", ".bmp"}
+
+    if is_image:
+        raise HTTPException(
+            status_code=400,
+            detail="Image files require OCR processing. Use /confirm for OCR extraction."
+        )
+
+    # Get user mappings from upload record
+    user_mappings = upload.column_mapping or {}
+
+    # Parse with universal engine and apply user mappings
+    try:
+        parsed_results = parse_workbook_with_mappings(upload.stored_path, user_mappings)
+    except Exception as e:
+        logger.error(f"[UNIVERSAL] Parse with mappings failed: {e}")
+        raise HTTPException(status_code=400, detail=f"Could not parse file with mappings: {str(e)}")
+
+    # Clear existing data (same as regular confirm)
+    db.query(ProductionRun).filter(ProductionRun.company_id == company_id).delete()
+    db.query(Product).filter(Product.company_id == company_id).delete()
+    db.query(ContractorLedgerEntry).filter(ContractorLedgerEntry.company_id == company_id).delete()
+    db.query(Expense).filter(Expense.company_id == company_id).delete()
+
+    rows_imported = 0
+
+    for result in parsed_results:
+        df = result.dataframe
+        if df.empty:
+            continue
+
+        sheet_type = result.sheet_type
+
+        # Map universal sheet types to existing import logic
+        if sheet_type in ("production_log", "production_costing"):
+            # Determine stream from sheet name or default
+            stream = ProductionStream.UNSPECIFIED
+            name_lower = result.sheet_name.lower()
+            if "self" in name_lower:
+                stream = ProductionStream.SELF_MADE
+            elif "cmt" in name_lower:
+                stream = ProductionStream.CMT
+
+            for _, row in df.iterrows():
+                article = clean(row.get("article") or row.get("article_code") or row.get("product"))
+                db.add(ProductionRun(
+                    company_id=company_id,
+                    date=clean(row.get("date")),
+                    stream=stream,
+                    article_label=str(article) if article is not None else None,
+                    quantity=clean(row.get("quantity")),
+                    cost_total=clean(row.get("cost_total") or row.get("cost")),
+                    sale_price_piece=clean(row.get("sale_price_piece") or row.get("unit_price") or row.get("sale_price_per_piece")),
+                    revenue_total=clean(row.get("revenue_total") or row.get("revenue")),
+                    profit=clean(row.get("profit") or row.get("profit_per_piece")),
+                    cost_breakdown=row.get("cost_breakdown") if isinstance(row.get("cost_breakdown"), dict) else None,
+                    source_upload_id=upload.id,
+                    source_sheet=result.sheet_name,
+                ))
+                rows_imported += 1
+
+        elif sheet_type == "article_costing":
+            for _, row in df.iterrows():
+                article_code = clean(row.get("article_code") or row.get("product"))
+                db.add(Product(
+                    company_id=company_id,
+                    cloth_type=clean(row.get("cloth_type") or row.get("product")),
+                    article_code=str(article_code) if article_code is not None else None,
+                    cost_per_meter=clean(row.get("cost_per_meter") or row.get("cost_per_piece")),
+                    cloth_meters_per_piece=clean(row.get("meters_per_piece") or row.get("cloth_meters_per_piece")),
+                    cloth_cost_per_piece=clean(row.get("cloth_cost_per_piece")),
+                    stitching_cost_per_piece=clean(row.get("stitching_cost") or row.get("stitching_cost_per_piece")),
+                    embroidery_cost_per_piece=clean(row.get("embroidery_cost") or row.get("embroidery_cost_per_piece")),
+                    washing_cost_per_piece=clean(row.get("washing_cost") or row.get("washing_cost_per_piece")),
+                    total_cost_per_piece=clean(row.get("total_cost_per_piece") or row.get("cost")),
+                    sale_price_per_piece=clean(row.get("sale_price_per_piece") or row.get("unit_price")),
+                    profit_per_piece=clean(row.get("profit_per_piece") or row.get("profit")),
+                    source="verified",
+                ))
+                rows_imported += 1
+
+        elif sheet_type == "expenses":
+            for _, row in df.iterrows():
+                description = clean(row.get("description")) or ""
+                db.add(Expense(
+                    company_id=company_id,
+                    date=clean(row.get("date")),
+                    description=description,
+                    category=categorize_expense(description),
+                    amount_received=clean(row.get("amount_received")),
+                    amount_used=clean(row.get("cost") or row.get("amount_used")),
+                    running_balance=clean(row.get("balance")),
+                    source_upload_id=upload.id,
+                ))
+                rows_imported += 1
+
+        elif sheet_type == "ledger":
+            for _, row in df.iterrows():
+                db.add(ContractorLedgerEntry(
+                    company_id=company_id,
+                    date=clean(row.get("date")),
+                    amount_billed=clean(row.get("debit") or row.get("amount_billed")),
+                    amount_paid=clean(row.get("credit") or row.get("paid") or row.get("amount_paid")),
+                    running_balance=clean(row.get("balance")),
+                    source_upload_id=upload.id,
+                ))
+                rows_imported += 1
+
+        elif sheet_type == "sales":
+            # Sales data can map to production runs or be stored separately
+            # For now, treat as production log with customer info
+            for _, row in df.iterrows():
+                article = clean(row.get("article") or row.get("product"))
+                db.add(ProductionRun(
+                    company_id=company_id,
+                    date=clean(row.get("date")),
+                    stream=ProductionStream.UNSPECIFIED,
+                    article_label=str(article) if article is not None else None,
+                    quantity=clean(row.get("quantity")),
+                    cost_total=clean(row.get("cost")),
+                    sale_price_piece=clean(row.get("unit_price")),
+                    revenue_total=clean(row.get("revenue")),
+                    profit=clean(row.get("profit") or row.get("margin")),
+                    source_upload_id=upload.id,
+                    source_sheet=result.sheet_name,
+                ))
+                rows_imported += 1
+
+        elif sheet_type == "purchases":
+            # Purchases map to expenses for now
+            for _, row in df.iterrows():
+                description = clean(row.get("description") or row.get("product")) or "Purchase"
+                db.add(Expense(
+                    company_id=company_id,
+                    date=clean(row.get("date")),
+                    description=description,
+                    category="Purchases",
+                    amount_received=clean(row.get("amount_received")),
+                    amount_used=clean(row.get("cost")),
+                    running_balance=clean(row.get("balance")),
+                    source_upload_id=upload.id,
+                ))
+                rows_imported += 1
+
+        elif sheet_type in ("receivables", "payables"):
+            # Ledger-style entries
+            for _, row in df.iterrows():
+                db.add(ContractorLedgerEntry(
+                    company_id=company_id,
+                    date=clean(row.get("date")),
+                    amount_billed=clean(row.get("debit") or row.get("amount_billed")),
+                    amount_paid=clean(row.get("credit") or row.get("paid") or row.get("amount_paid")),
+                    running_balance=clean(row.get("balance")),
+                    source_upload_id=upload.id,
+                ))
+                rows_imported += 1
+
+        elif sheet_type == "inventory":
+            # Inventory data - could map to products
+            for _, row in df.iterrows():
+                article_code = clean(row.get("article_code") or row.get("product"))
+                db.add(Product(
+                    company_id=company_id,
+                    cloth_type=clean(row.get("product")),
+                    article_code=str(article_code) if article_code is not None else None,
+                    source="verified",
+                ))
+                rows_imported += 1
+
+        else:
+            # Unknown sheet type - log warning but don't fail
+            logger.warning(f"[UNIVERSAL] Unknown sheet type '{sheet_type}' for sheet '{result.sheet_name}' - skipping import")
+
+    upload.status = UploadStatus.IMPORTED
+    upload.rows_imported = rows_imported
+    db.commit()
+
+    return {"upload_id": upload.id, "rows_imported": rows_imported, "status": "imported"}
+
 
 def _process_ocr_upload(upload: Upload, company_id: uuid.UUID, db: Session) -> dict:
     """

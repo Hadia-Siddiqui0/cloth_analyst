@@ -8,13 +8,16 @@ export default function Upload() {
   const router = useRouter();
   const fileInputRef = useRef(null);
   const [dragActive, setDragActive] = useState(false);
-  const [status, setStatus] = useState("idle"); // idle | uploading | preview | ocr_review | confirming | done
+  const [status, setStatus] = useState("idle"); // idle | uploading | analyzing | mapping_review | ocr_review | confirming | done
   const [preview, setPreview] = useState(null);
   const [uploadId, setUploadId] = useState(null);
   const [error, setError] = useState("");
   const [isImage, setIsImage] = useState(false);
   const [ocrData, setOcrData] = useState(null);
   const [editedRecords, setEditedRecords] = useState([]);
+  // Universal ingestion state
+  const [analysis, setAnalysis] = useState(null);
+  const [userMappings, setUserMappings] = useState({});
 
   useEffect(() => {
     if (
@@ -45,7 +48,11 @@ export default function Upload() {
         // For images, show a message that OCR will be triggered on confirm
         setStatus("preview");
       } else {
-        setStatus("preview");
+        // For Excel/CSV, analyze with universal ingestion engine
+        setStatus("analyzing");
+        const analyzeRes = await uploads.analyze(res.data.upload_id);
+        setAnalysis(analyzeRes.data);
+        setStatus("mapping_review");
       }
     } catch (err) {
       setError(
@@ -53,6 +60,65 @@ export default function Upload() {
           "Could not read that file. Try a .xlsx, .csv, or image file.",
       );
       setStatus("idle");
+    }
+  }
+
+  async function handleAnalyze() {
+    if (!uploadId) return;
+    setStatus("analyzing");
+    setError("");
+    try {
+      const res = await uploads.analyze(uploadId);
+      setAnalysis(res.data);
+      setStatus("mapping_review");
+    } catch (err) {
+      setError(
+        extractErrorMessage(err.response?.data?.detail) || "Could not analyze file."
+      );
+      setStatus("preview");
+    }
+  }
+
+  function handleMappingChange(sheetName, standardField, originalColumn) {
+    const updated = { ...userMappings };
+    if (!updated[sheetName]) updated[sheetName] = {};
+    if (originalColumn) {
+      updated[sheetName][standardField] = originalColumn;
+    } else {
+      delete updated[sheetName][standardField];
+      if (Object.keys(updated[sheetName]).length === 0) {
+        delete updated[sheetName];
+      }
+    }
+    setUserMappings(updated);
+  }
+
+  async function handleSaveMappings() {
+    if (!uploadId) return;
+    setError("");
+    try {
+      await uploads.saveMappings(uploadId, userMappings);
+      setError("Mappings saved successfully!");
+    } catch (err) {
+      setError(
+        extractErrorMessage(err.response?.data?.detail) || "Could not save mappings."
+      );
+    }
+  }
+
+  async function handleConfirmUniversal() {
+    if (!uploadId) return;
+    setStatus("confirming");
+    setError("");
+    try {
+      const res = await uploads.confirmUniversal(uploadId);
+      setStatus("done");
+      setTimeout(() => router.push("/dashboard"), 1200);
+    } catch (err) {
+      setError(
+        extractErrorMessage(err.response?.data?.detail) || "Could not import data."
+      );
+      setStatus("mapping_review");
     }
   }
 
@@ -404,6 +470,305 @@ export default function Upload() {
             )}
           </div>
         )}
+
+        {/* Universal Ingestion - Mapping Review */}
+        {(status === "analyzing" || status === "mapping_review" || status === "confirming") &&
+          analysis && !isImage && (
+            <div>
+              <div className="upload-summary">
+                <strong>{analysis.original_filename || "your file"}</strong> analyzed.
+                {analysis.sheets?.length || 0} sheet{analysis.sheets?.length !== 1 ? "s" : ""} found.
+                <br />
+                <span style={{ fontSize: 12, color: "var(--text-faint)" }}>
+                  Review column mappings below, adjust if needed, then confirm to import.
+                </span>
+              </div>
+
+              {analysis.sheets?.map((sheet) => (
+                <div key={sheet.sheet_name} className="upload-sheet-card">
+                  <div className="upload-sheet-header">
+                    <span style={{ fontWeight: 700 }}>{sheet.sheet_name}</span>
+                    <span className="tag">{sheet.sheet_type?.replace(/_/g, " ")}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-faint)", marginLeft: 8 }}>
+                      Confidence: {Math.round((sheet.confidence || 0) * 100)}%
+                    </span>
+                    <span style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--text-faint)" }}>
+                      {sheet.row_count} rows
+                    </span>
+                  </div>
+
+                  {sheet.warnings?.length > 0 && (
+                    <div className="upload-warning">
+                      {sheet.warnings.map((w, i) => (
+                        <div key={i}>⚠ {w}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Column Mapping Table */}
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8 }}>
+                      Column Mappings
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", fontSize: 11.5, borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr>
+                            <th style={styles.mappingHeader}>Column in File</th>
+                            <th style={styles.mappingHeader}>Detected Type</th>
+                            <th style={styles.mappingHeader}>Confidence</th>
+                            <th style={styles.mappingHeader}>Map To</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sheet.columns?.map((col, colIdx) => (
+                            <tr key={colIdx} style={{ borderBottom: "1px solid var(--border)" }}>
+                              <td style={styles.mappingCell} title={col.original_name}>
+                                {col.original_name}
+                              </td>
+                              <td style={styles.mappingCell}>
+                                <span className="tag" style={{ fontSize: 10, textTransform: "capitalize" }}>
+                                  {col.detected_type}
+                                </span>
+                              </td>
+                              <td style={styles.mappingCell}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <div
+                                    style={{
+                                      width: 60,
+                                      height: 6,
+                                      background: "var(--border)",
+                                      borderRadius: 3,
+                                      overflow: "hidden",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        width: `${Math.round((col.confidence || 0) * 100)}%`,
+                                        height: "100%",
+                                        background:
+                                          col.confidence >= 0.8
+                                            ? "var(--success)"
+                                            : col.confidence >= 0.5
+                                            ? "var(--warning)"
+                                            : "var(--danger)",
+                                      }}
+                                    />
+                                  </div>
+                                  <span style={{ fontSize: 10 }}>
+                                    {Math.round((col.confidence || 0) * 100)}%
+                                  </span>
+                                </div>
+                              </td>
+                              <td style={styles.mappingCell}>
+                                <select
+                                  className="input"
+                                  style={{ padding: "4px 8px", fontSize: 11.5, minWidth: 180 }}
+                                  value={
+                                    userMappings[sheet.sheet_name]?.[col.suggested_mapping] ||
+                                    col.suggested_mapping ||
+                                    ""
+                                  }
+                                  onChange={(e) =>
+                                    handleMappingChange(
+                                      sheet.sheet_name,
+                                      col.suggested_mapping || col.original_name,
+                                      e.target.value || null
+                                    )
+                                  }
+                                >
+                                  <option value="">-- Don't map --</option>
+                                  {col.suggested_mapping && (
+                                    <option value={col.suggested_mapping}>
+                                      {col.suggested_mapping} (suggested)
+                                    </option>
+                                  )}
+                                  <option value={col.original_name}>
+                                    {col.original_name} (use as-is)
+                                  </option>
+                                  {/* Standard fields for common sheet types */}
+                                  {sheet.sheet_type === "production_log" && (
+                                    <>
+                                      <optgroup label="Production Fields">
+                                        <option value="date">Date</option>
+                                        <option value="article">Article</option>
+                                        <option value="quantity">Quantity</option>
+                                        <option value="cost_total">Cost Total</option>
+                                        <option value="sale_price_piece">Sale Price/Piece</option>
+                                        <option value="revenue_total">Revenue Total</option>
+                                        <option value="profit">Profit</option>
+                                      </optgroup>
+                                    </>
+                                  )}
+                                  {sheet.sheet_type === "article_costing" && (
+                                    <>
+                                      <optgroup label="Costing Fields">
+                                        <option value="cloth_type">Cloth Type</option>
+                                        <option value="article_code">Article Code</option>
+                                        <option value="cost_per_meter">Cost/Meter</option>
+                                        <option value="meters_per_piece">Meters/Piece</option>
+                                        <option value="cloth_cost_per_piece">Cloth Cost/Piece</option>
+                                        <option value="stitching_cost_per_piece">Stitching Cost/Piece</option>
+                                        <option value="embroidery_cost_per_piece">Embroidery Cost/Piece</option>
+                                        <option value="washing_cost_per_piece">Washing Cost/Piece</option>
+                                        <option value="total_cost_per_piece">Total Cost/Piece</option>
+                                        <option value="sale_price_per_piece">Sale Price/Piece</option>
+                                        <option value="profit_per_piece">Profit/Piece</option>
+                                      </optgroup>
+                                    </>
+                                  )}
+                                  {sheet.sheet_type === "expenses" && (
+                                    <>
+                                      <optgroup label="Expense Fields">
+                                        <option value="date">Date</option>
+                                        <option value="description">Description</option>
+                                        <option value="amount_received">Amount Received</option>
+                                        <option value="cost">Amount Used/Cost</option>
+                                        <option value="balance">Balance</option>
+                                      </optgroup>
+                                    </>
+                                  )}
+                                  {sheet.sheet_type === "ledger" && (
+                                    <>
+                                      <optgroup label="Ledger Fields">
+                                        <option value="date">Date</option>
+                                        <option value="debit">Debit/Amount Billed</option>
+                                        <option value="credit">Credit/Amount Paid</option>
+                                        <option value="balance">Balance</option>
+                                      </optgroup>
+                                    </>
+                                  )}
+                                  {sheet.sheet_type === "sales" && (
+                                    <>
+                                      <optgroup label="Sales Fields">
+                                        <option value="date">Date</option>
+                                        <option value="customer">Customer</option>
+                                        <option value="product">Product</option>
+                                        <option value="quantity">Quantity</option>
+                                        <option value="unit_price">Unit Price</option>
+                                        <option value="revenue">Revenue/Total</option>
+                                      </optgroup>
+                                    </>
+                                  )}
+                                  {sheet.sheet_type === "purchases" && (
+                                    <>
+                                      <optgroup label="Purchase Fields">
+                                        <option value="date">Date</option>
+                                        <option value="supplier">Supplier</option>
+                                        <option value="product">Product</option>
+                                        <option value="quantity">Quantity</option>
+                                        <option value="unit_cost">Unit Cost</option>
+                                        <option value="cost_total">Total Cost</option>
+                                      </optgroup>
+                                    </>
+                                  )}
+                                  {sheet.sheet_type === "inventory" && (
+                                    <>
+                                      <optgroup label="Inventory Fields">
+                                        <option value="product">Product</option>
+                                        <option value="stock_in">Stock In</option>
+                                        <option value="stock_out">Stock Out</option>
+                                        <option value="balance">Balance</option>
+                                        <option value="unit">Unit</option>
+                                      </optgroup>
+                                    </>
+                                  )}
+                                  {sheet.sheet_type === "production_costing" && (
+                                    <>
+                                      <optgroup label="Production Costing Fields">
+                                        <option value="date">Date</option>
+                                        <option value="article">Article</option>
+                                        <option value="article_code">Article Code</option>
+                                        <option value="quantity">Quantity</option>
+                                        <option value="cost_total">Cost Total</option>
+                                        <option value="sale_price_piece">Sale Price/Piece</option>
+                                        <option value="revenue_total">Revenue Total</option>
+                                        <option value="profit">Profit</option>
+                                      </optgroup>
+                                    </>
+                                  )}
+                                  {sheet.sheet_type === "receivables" && (
+                                    <>
+                                      <optgroup label="Receivables Fields">
+                                        <option value="date">Date</option>
+                                        <option value="customer">Customer</option>
+                                        <option value="debit">Debit/Amount Billed</option>
+                                        <option value="credit">Credit/Amount Paid</option>
+                                        <option value="balance">Balance</option>
+                                      </optgroup>
+                                    </>
+                                  )}
+                                  {sheet.sheet_type === "payables" && (
+                                    <>
+                                      <optgroup label="Payables Fields">
+                                        <option value="date">Date</option>
+                                        <option value="supplier">Supplier</option>
+                                        <option value="debit">Debit/Amount Billed</option>
+                                        <option value="credit">Credit/Amount Paid</option>
+                                        <option value="balance">Balance</option>
+                                      </optgroup>
+                                    </>
+                                  )}
+                                </select>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Data Preview */}
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8 }}>
+                      Data Preview (first 5 rows)
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr>
+                            {sheet.preview?.[0] &&
+                              Object.keys(sheet.preview[0]).map((key) => (
+                                <th key={key} style={styles.tableHeader}>{key}</th>
+                              ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sheet.preview?.slice(0, 5).map((row, rowIdx) => (
+                            <tr key={rowIdx}>
+                              {Object.values(row).map((val, valIdx) => (
+                                <td key={valIdx} style={styles.tableCell}>
+                                  {val === null || val === undefined ? "—" : String(val)}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <div style={{ marginTop: 20, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <button
+                  onClick={handleSaveMappings}
+                  disabled={status === "confirming"}
+                  className="btn btn-secondary"
+                >
+                  Save Mappings
+                </button>
+                <button
+                  onClick={handleConfirmUniversal}
+                  disabled={status === "confirming"}
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                >
+                  {status === "confirming" ? "Importing..." : "Confirm and Import"}
+                </button>
+              </div>
+            </div>
+          )}
       </div>
     </main>
   );
@@ -420,5 +785,19 @@ const styles = {
   tableCell: {
     padding: "4px 8px",
     borderBottom: "1px solid var(--border)",
+  },
+  mappingHeader: {
+    textAlign: "left",
+    padding: "8px 12px",
+    background: "var(--bg-soft)",
+    fontWeight: 600,
+    borderBottom: "1px solid var(--border)",
+    fontSize: 11.5,
+  },
+  mappingCell: {
+    padding: "6px 10px",
+    borderBottom: "1px solid var(--border)",
+    fontSize: 11.5,
+    verticalAlign: "middle",
   },
 };

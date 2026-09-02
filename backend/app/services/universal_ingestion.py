@@ -21,7 +21,7 @@ This is the foundation for the "upload anything" vision.
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -62,48 +62,94 @@ class UniversalParseResult:
 
 
 # Standard field names we look for in business data
+# Each field maps to a list of aliases in multiple languages
 STANDARD_FIELDS = {
     # Time fields
-    "date": ["date", "dated", "dt", "day", "time", "tarikh", "تاریخ"],
+    "date": ["date", "dated", "dt", "day", "time", "tarikh", "تاریخ", "tanggal", "fecha", "datum"],
 
     # Product/Item fields
-    "product": ["product", "item", "article", "cloth", "type", "design", "style", "maal", "مال"],
-    "article_code": ["article", "code", "sku", "id", "ref", "number", "art"],
-    "quantity": ["quantity", "qty", "count", "pieces", "units", "amount", "tadad", "تعداد"],
+    "product": ["product", "item", "article", "cloth", "type", "design", "style", "maal", "مال", "مصنوع", "articulo", "produkt"],
+    "article_code": ["article", "code", "sku", "id", "ref", "number", "art", "item_code", "product_code"],
+    "quantity": ["quantity", "qty", "count", "pieces", "units", "amount", "tadad", "تعداد", "cantidad", "menge",
+                 "amount/piece", "amount/pice", "amt/piece", "amt/pice", "amount per piece"],
 
     # Money in (revenue)
-    "revenue": ["revenue", "sale", "sales", "income", "total sale", "total sales", "bikri", "بیع"],
-    "unit_price": ["price", "rate", "unit price", "sale price", "price per piece"],
+    "revenue": ["revenue", "sale", "sales", "income", "total sale", "total sales", "bikri", "بیع", "فروخت", "ventas", "umsatz", "ingresos",
+                "total", "total.1", "grand total", "total amount", "total amount."],
+    "unit_price": ["price", "rate", "unit price", "sale price", "price per piece", "preis", "precio",
+                   "amount/piece", "amount/pice", "amt/piece", "amt/pice", "amount per piece"],
 
     # Money out (cost)
-    "cost": ["cost", "total cost", "expense", "kharcha", "خرچہ"],
-    "cost_per_piece": ["cost per piece", "cost/piece", "unit cost"],
+    "cost": ["cost", "total cost", "expense", "kharcha", "خرچہ", "کھرچہ", "kosten", "costo", "gasto",
+             "total cost", "total", "total.", "total.1", "grand total", "amount"],
+    "cost_per_piece": ["cost per piece", "cost/piece", "unit cost", "cost per unit"],
 
     # Profit
-    "profit": ["profit", "gain", "faida", "فائدہ"],
-    "margin": ["margin", "profit margin", "profit %"],
+    "profit": ["profit", "gain", "faida", "فائدہ", "منافع", "ganancia", "gewinn", "margen",
+               "total profit", "profit.", "profit.1"],
+    "margin": ["margin", "profit margin", "profit %", "marge", "margen"],
 
     # Customer
-    "customer": ["customer", "client", "buyer", "party", "grahak", "گاہک"],
+    "customer": ["customer", "client", "buyer", "party", "grahak", "گاہک", "cliente", "kunde", "kunden"],
 
     # Supplier
-    "supplier": ["supplier", "vendor", "seller", "party", "faroosh"],
+    "supplier": ["supplier", "vendor", "seller", "party", "faroosh", "proveedor", "lieferant", "vendor",
+                 "supp", "supp.", "supply"],
 
     # Balance/Payment
-    "balance": ["balance", "remaining", "baqi", "باقی"],
-    "paid": ["paid", "payment", "jama", "جمع"],
-    "due": ["due", "pending", "outstanding", "baki"],
+    "balance": ["balance", "remaining", "baqi", "باقی", "saldo", "restbetrag"],
+    "paid": ["paid", "payment", "jama", "جمع", "pagado", "bezahlt", "paid_amount",
+             "receive", "received", "recive", "amount received", "amount recive"],
+    "due": ["due", "pending", "outstanding", "baki", "fälligkeit", "pendiente"],
 
     # Description
-    "description": ["description", "details", "notes", "remarks", "detail"],
+    "description": ["description", "details", "notes", "remarks", "detail", "beschreibung", "descripcion", "note"],
 
     # Category
-    "category": ["category", "type", "group", "class"],
+    "category": ["category", "type", "group", "class", "kategorie", "categoria", "klasse"],
 
     # Inventory
-    "stock_in": ["stock in", "received", "purchase", "in", "aaya"],
-    "stock_out": ["stock out", "issued", "sold", "out", "gaya"],
-    "stock_balance": ["stock", "inventory", "balance", "remainder"],
+    "stock_in": ["stock in", "received", "purchase", "in", "aaya", "entrada", "zugang", "receipts"],
+    "stock_out": ["stock out", "issued", "sold", "out", "gaya", "salida", "abgang", "issues"],
+    "stock_balance": ["stock", "inventory", "balance", "remainder", "bestand", "inventario", "existencias"],
+
+    # Production-specific (for garment factory compatibility)
+    "cloth_type": ["cloth type", "cloth", "fabric", "material", "tela", "stoff",
+                   "cloth", "cloth type"],
+    "meters_per_piece": ["meters per piece", "cloth meters", "meters/piece", "m/piece", "meter je stück",
+                         "cloth/piece", "cloth peace", "meters per peace"],
+    "stitching_cost": ["stitching", "stitching cost", "sewing", "sewing cost", "nähkosten", "costura",
+                       "stitching/piece", "steaching peace", "steaching/peace"],
+    "embroidery_cost": ["embroidery", "embroidery cost", "stickerei", "bordado",
+                        "embroidery/piece", "embroidery peace"],
+    "washing_cost": ["washing", "washing cost", "wäsche", "lavado",
+                     "washing/piece", "washing peace"],
+    "total_cost_per_piece": ["total cost per piece", "total cost/piece", "cost per piece total",
+                             "total peace", "total/peace"],
+    "sale_price_per_piece": ["sale price per piece", "sale price/piece", "selling price", "verkaufspreis",
+                             "sale/peace", "seal/peace", "seal peace"],
+    "profit_per_piece": ["profit per piece", "profit/piece", "gewinn je stück", "ganancia por pieza",
+                         "profit/peace", "profit peace"],
+    "total_pieces": ["total pieces", "total pcs", "total pieces produced"],
+    "total_profit": ["total profit", "total gain", "total profit.", "total.profit"],
+
+    # Garment factory specific cost breakdown items
+    "kaaj_button": ["kaaj", "button", "kaaj/button", "kaaj/ button", "kaaj/button"],
+    "electricity": ["elect", "electricity", "electric", "ssgc", "fuel", "fule"],
+    "maintenance": ["maintanace", "maintenance", "mechanic"],
+    "transport": ["transpotaion", "transp", "transport", "transportation"],
+    "rent": ["rent"],
+    "mis": ["mis", "misc", "miscellaneous"],
+    "helper": ["helper", "helper/loader", "helper / loader"],
+    "sweeper": ["sweeper"],
+    "security": ["security"],
+    "cards_labels": ["cards", "labels", "cards & labels", "cards & leable"],
+
+    # Ledger/Accounting specific
+    "debit": ["debit", "dr", "charge", "belastung", "cargo", "amount", "amount used", "used"],
+    "credit": ["credit", "cr", "credit amount", "gutschrift", "abono", "receive", "received", "recive", "amount recive", "amount receive"],
+    "reference": ["reference", "ref", "ref no", "voucher", "beleg", "referencia"],
+    "account": ["account", "account name", "konto", "cuenta"],
 }
 
 
@@ -222,6 +268,13 @@ def detect_sheet_type(columns: list[ColumnAnalysis]) -> tuple[str, float]:
     """
     # Build a set of detected standard fields
     detected_fields = {c.suggested_mapping for c in columns if c.suggested_mapping}
+    original_names = {c.original_name.lower() for c in columns}
+
+    # Also check column types for additional signals
+    column_types = {c.detected_type for c in columns}
+    has_dates = "date" in column_types
+    has_currency = "currency" in column_types
+    has_numbers = "number" in column_types
 
     # Production log: has date, quantity, revenue/cost, profit
     production_fields = {"date", "quantity", "revenue", "cost", "profit"}
@@ -235,14 +288,20 @@ def detect_sheet_type(columns: list[ColumnAnalysis]) -> tuple[str, float]:
     if sales_match >= 3:
         return ("sales", sales_match / len(sales_fields))
 
-    # Expenses: has date, description, cost
-    expense_fields = {"date", "description", "cost"}
+    # Article costing: has product, cost_per_piece, sale_price_per_piece, profit_per_piece
+    costing_fields = {"product", "article_code", "cost_per_piece", "sale_price_per_piece", "profit_per_piece", "cloth_type", "meters_per_piece"}
+    costing_match = len(detected_fields & costing_fields)
+    if costing_match >= 3:
+        return ("article_costing", costing_match / len(costing_fields))
+
+    # Expenses: has date, description, cost (or paid/used amount)
+    expense_fields = {"date", "description", "cost", "paid", "credit"}
     expense_match = len(detected_fields & expense_fields)
     if expense_match >= 2:
         return ("expenses", expense_match / len(expense_fields))
 
-    # Ledger: has date, balance, paid
-    ledger_fields = {"date", "balance", "paid", "due"}
+    # Ledger: has date, balance, paid (received)
+    ledger_fields = {"date", "balance", "paid", "due", "debit", "credit"}
     ledger_match = len(detected_fields & ledger_fields)
     if ledger_match >= 2:
         return ("ledger", ledger_match / len(ledger_fields))
@@ -253,7 +312,43 @@ def detect_sheet_type(columns: list[ColumnAnalysis]) -> tuple[str, float]:
     if inventory_match >= 2:
         return ("inventory", inventory_match / len(inventory_fields))
 
-    # Default to unknown
+    # Purchases: has date, supplier, product, quantity, cost
+    purchase_fields = {"date", "supplier", "product", "quantity", "cost"}
+    purchase_match = len(detected_fields & purchase_fields)
+    if purchase_match >= 3:
+        return ("purchases", purchase_match / len(purchase_fields))
+
+    # Receivables/Payables: has date, customer/supplier, balance, paid/due
+    receivable_fields = {"date", "customer", "balance", "paid", "due"}
+    receivable_match = len(detected_fields & receivable_fields)
+    if receivable_match >= 3:
+        return ("receivables", receivable_match / len(receivable_fields))
+
+    payable_fields = {"date", "supplier", "balance", "paid", "due"}
+    payable_match = len(detected_fields & payable_fields)
+    if payable_match >= 3:
+        return ("payables", payable_match / len(payable_fields))
+
+    # Production runs with cost breakdown (garment factory specific)
+    if "cloth_type" in detected_fields and "meters_per_piece" in detected_fields:
+        return ("production_costing", 0.7)
+
+    # Check for ledger-like sheets by original column names (fallback)
+    ledger_keywords = {"amount", "receive", "recive", "balance", "description", "date"}
+    if len(original_names & ledger_keywords) >= 3 and has_dates:
+        return ("ledger", 0.6)
+
+    # Check for expense-like sheets by original column names
+    expense_keywords = {"description", "amount recive", "used", "amount", "balance", "date"}
+    if len(original_names & expense_keywords) >= 3 and has_dates:
+        return ("expenses", 0.6)
+
+    # Default to unknown - but provide some confidence based on data types
+    if has_dates and has_currency:
+        return ("unknown", 0.5)
+    if has_dates:
+        return ("unknown", 0.4)
+
     return ("unknown", 0.3)
 
 
@@ -428,3 +523,107 @@ def parse_workbook_universal(file_path: str) -> list[UniversalParseResult]:
             ))
 
     return results
+
+
+def apply_user_mappings(
+    parse_result: UniversalParseResult,
+    user_mappings: dict[str, str]
+) -> UniversalParseResult:
+    """
+    Apply user-provided column mappings to a parse result.
+
+    Args:
+        parse_result: The original parse result
+        user_mappings: Dict mapping {standard_field_name: original_column_name}
+                      e.g., {"date": "Order Date", "revenue": "Total Sales"}
+
+    Returns:
+        New UniversalParseResult with updated mappings and standardized dataframe
+    """
+    # Create a copy of the analysis with updated suggested_mappings
+    updated_mappings = {**parse_result.analysis.suggested_mappings, **user_mappings}
+
+    # Standardize column names in output DataFrame
+    standardized_df = parse_result.dataframe.copy()
+    rename_map = {v: k for k, v in updated_mappings.items()}
+    standardized_df = standardized_df.rename(columns=rename_map)
+
+    # Convert date columns
+    for col in standardized_df.columns:
+        if 'date' in str(col).lower():
+            standardized_df[col] = pd.to_datetime(standardized_df[col], errors='coerce')
+
+    # Build updated analysis
+    updated_analysis = SheetAnalysis(
+        sheet_name=parse_result.analysis.sheet_name,
+        detected_type=parse_result.analysis.detected_type,
+        confidence=parse_result.analysis.confidence,
+        columns=parse_result.analysis.columns,
+        row_count=parse_result.analysis.row_count,
+        warnings=parse_result.analysis.warnings,
+        suggested_mappings=updated_mappings,
+    )
+
+    return UniversalParseResult(
+        sheet_name=parse_result.sheet_name,
+        sheet_type=parse_result.sheet_type,
+        confidence=parse_result.confidence,
+        dataframe=standardized_df,
+        analysis=updated_analysis,
+        warnings=parse_result.warnings,
+    )
+
+
+def parse_workbook_with_mappings(
+    file_path: str,
+    sheet_mappings: dict[str, dict[str, str]]
+) -> list[UniversalParseResult]:
+    """
+    Parse workbook and apply user-provided mappings per sheet.
+
+    Args:
+        file_path: Path to the file
+        sheet_mappings: Dict mapping {sheet_name: {standard_field: original_column}}
+
+    Returns:
+        List of UniversalParseResult with user mappings applied
+    """
+    results = parse_workbook_universal(file_path)
+
+    updated_results = []
+    for result in results:
+        user_map = sheet_mappings.get(result.sheet_name, {})
+        if user_map:
+            result = apply_user_mappings(result, user_map)
+        updated_results.append(result)
+
+    return updated_results
+
+
+def get_sheet_summary(parse_result: UniversalParseResult) -> dict:
+    """
+    Get a summary of a parse result for frontend display.
+    Includes confidence, warnings, column analysis, and sample data.
+    """
+    col_summaries = []
+    for col in parse_result.analysis.columns:
+        col_summaries.append({
+            "original_name": col.original_name,
+            "detected_type": col.detected_type,
+            "confidence": round(col.confidence, 2),
+            "suggested_mapping": col.suggested_mapping,
+            "sample_values": col.sample_values[:3],
+            "null_count": col.null_count,
+            "unique_count": col.unique_count,
+        })
+
+    return {
+        "sheet_name": parse_result.sheet_name,
+        "sheet_type": parse_result.sheet_type,
+        "confidence": round(parse_result.confidence, 2),
+        "row_count": parse_result.analysis.row_count,
+        "columns": col_summaries,
+        "suggested_mappings": parse_result.analysis.suggested_mappings,
+        "warnings": parse_result.warnings,
+        "preview": parse_result.dataframe.head(5).fillna("").to_dict(orient="records"),
+    }

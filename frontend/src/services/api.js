@@ -74,4 +74,30 @@ export const receivables = {
     api.patch(`/api/receivables/payments/${paymentId}/mark-paid`, payload),
 };
 
+export const payables = {
+  suppliers: () => api.get("/api/payables/suppliers"),
+  summary: () => api.get("/api/payables/summary"),
+  payables: () => api.get("/api/payables/payables"),
+  createPayable: (payload) => api.post("/api/payables/payables", payload),
+  markPaid: (payableId, payload) =>
+    api.patch(`/api/payables/payables/${payableId}/mark-paid`, payload),
+};
+
+export const notifications = {
+  list: (unreadOnly = false, limit = 50) =>
+    api.get("/api/notifications", { params: { unread_only: unreadOnly, limit } }),
+  company: (unreadOnly = false, limit = 50) =>
+    api.get("/api/notifications/company", { params: { unread_only: unreadOnly, limit } }),
+  markRead: (notificationId) =>
+    api.post("/api/notifications/mark-read", { notification_id: notificationId }),
+  markAllRead: () => api.post("/api/notifications/mark-all-read"),
+  runReminders: () => api.post("/api/notifications/run-reminders"),
+};
+
+export const ceo = {
+  attention: () => api.get("/api/ceo/attention"),
+  notifications: (unreadOnly = false, limit = 20) =>
+    api.get("/api/ceo/attention/notifications", { params: { unread_only: unreadOnly, limit } }),
+};
+
 export default api;

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import Chart from "chart.js/auto";
 import ThemeToggle from "../src/components/ThemeToggle";
-import { dashboard } from "../src/services/api";
+import { dashboard, ceo } from "../src/services/api";
 import { rupees, signedRupees } from "../src/utils/format";
 import { extractErrorMessage } from "../src/utils/errorHandler";
 
@@ -43,6 +43,7 @@ export default function Dashboard() {
           lowestRes,
           expensesRes,
           contractorRes,
+          ceoAttentionRes,
         ] = await Promise.all([
           dashboard.kpis(),
           dashboard.weeklyProfit(),
@@ -51,6 +52,7 @@ export default function Dashboard() {
           dashboard.lowestMarginProduct(),
           dashboard.expenseCategories(),
           dashboard.contractor(),
+          ceo.attention(),
         ]);
         setData({
           kpis: kpisRes.data,
@@ -60,6 +62,7 @@ export default function Dashboard() {
           lowestMargin: lowestRes.data,
           expenseCategories: expensesRes.data,
           contractor: contractorRes.data,
+          ceoAttention: ceoAttentionRes.data,
         });
       } catch (err) {
         setError(
@@ -144,6 +147,7 @@ export default function Dashboard() {
     lowestMargin,
     expenseCategories,
     contractor,
+    ceoAttention,
   } = data;
   const profitGood = kpis.total_profit >= 0;
 
@@ -399,7 +403,152 @@ export default function Dashboard() {
         )}
       </section>
 
-      <div className="dash-footer-note">
+      {ceoAttention && (
+      <section className="card dash-section">
+        <div className="eyebrow">Executive Attention</div>
+        <h2 className="dash-section-title">What requires your attention</h2>
+        <p className="dash-section-explain">
+          Items flagged for CEO review: overdue payments, large amounts due today,
+          and upcoming cash flow commitments.
+        </p>
+
+        <div className="dash-kpi-row">
+          <div className="card dash-kpi">
+            <div className="stat-label">Overdue Payables</div>
+            <div className="stat-value" style={{ color: "var(--negative)" }}>
+              {rupees(ceoAttention.summary.payables.overdue.total_amount)}
+            </div>
+            <div className="stat-sub">
+              {ceoAttention.summary.payables.overdue.count} supplier payment{ceoAttention.summary.payables.overdue.count !== 1 ? "s" : ""} past due
+            </div>
+          </div>
+          <div className="card dash-kpi">
+            <div className="stat-label">Overdue Receivables</div>
+            <div className="stat-value" style={{ color: "var(--negative)" }}>
+              {rupees(ceoAttention.summary.receivables.overdue.total_amount)}
+            </div>
+            <div className="stat-sub">
+              {ceoAttention.summary.receivables.overdue.count} customer payment{ceoAttention.summary.receivables.overdue.count !== 1 ? "s" : ""} past due
+            </div>
+          </div>
+          <div className="card dash-kpi">
+            <div className="stat-label">Due Today (Payables)</div>
+            <div className="stat-value" style={{ color: "var(--accent)" }}>
+              {rupees(ceoAttention.summary.payables.due_today.total_amount)}
+            </div>
+            <div className="stat-sub">
+              {ceoAttention.summary.payables.due_today.count} payment{ceoAttention.summary.payables.due_today.count !== 1 ? "s" : ""} due today
+            </div>
+          </div>
+          <div className="card dash-kpi">
+            <div className="stat-label">Due Today (Receivables)</div>
+            <div className="stat-value" style={{ color: "var(--positive)" }}>
+              {rupees(ceoAttention.summary.receivables.due_today.total_amount)}
+            </div>
+            <div className="stat-sub">
+              {ceoAttention.summary.receivables.due_today.count} payment{ceoAttention.summary.receivables.due_today.count !== 1 ? "s" : ""} due today
+            </div>
+          </div>
+        </div>
+
+        {ceoAttention.summary.payables.overdue.top_items.length > 0 && (
+          <div className="dash-attention-list">
+            <h3 className="dash-attention-heading">Top Overdue Payables</h3>
+            {ceoAttention.summary.payables.overdue.top_items.map((item) => (
+              <div className="dash-attention-item" key={item.id}>
+                <div className="dash-attention-main">
+                  <span className="dash-attention-name">{item.supplier_name}</span>
+                  <span className="dash-attention-amount" style={{ color: "var(--negative)" }}>
+                    {rupees(item.amount)}
+                  </span>
+                </div>
+                <div className="dash-attention-meta">
+                  Due {item.due_date} · {item.days_overdue} day{item.days_overdue !== 1 ? "s" : ""} overdue
+                  {item.reference && <span> · Ref: {item.reference}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {ceoAttention.summary.receivables.overdue.top_items.length > 0 && (
+          <div className="dash-attention-list">
+            <h3 className="dash-attention-heading">Top Overdue Receivables</h3>
+            {ceoAttention.summary.receivables.overdue.top_items.map((item) => (
+              <div className="dash-attention-item" key={item.id}>
+                <div className="dash-attention-main">
+                  <span className="dash-attention-name">{item.customer_name}</span>
+                  <span className="dash-attention-amount" style={{ color: "var(--negative)" }}>
+                    {rupees(item.amount)}
+                  </span>
+                </div>
+                <div className="dash-attention-meta">
+                  Due {item.due_date} · {item.days_overdue} day{item.days_overdue !== 1 ? "s" : ""} overdue
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {(ceoAttention.summary.payables.due_today.top_items.length > 0 || ceoAttention.summary.receivables.due_today.top_items.length > 0) && (
+          <div className="dash-attention-list">
+            <h3 className="dash-attention-heading">Due Today</h3>
+            {ceoAttention.summary.payables.due_today.top_items.map((item) => (
+              <div className="dash-attention-item" key={"pay-" + item.id}>
+                <div className="dash-attention-main">
+                  <span className="dash-attention-name">{item.supplier_name} (payable)</span>
+                  <span className="dash-attention-amount" style={{ color: "var(--accent)" }}>
+                    {rupees(item.amount)}
+                  </span>
+                </div>
+                <div className="dash-attention-meta">
+                  {item.reference && <span>Ref: {item.reference}</span>}
+                </div>
+              </div>
+            ))}
+            {ceoAttention.summary.receivables.due_today.top_items.map((item) => (
+              <div className="dash-attention-item" key={"rec-" + item.id}>
+                <div className="dash-attention-main">
+                  <span className="dash-attention-name">{item.customer_name} (receivable)</span>
+                  <span className="dash-attention-amount" style={{ color: "var(--positive)" }}>
+                    {rupees(item.amount)}
+                  </span>
+                </div>
+                <div className="dash-attention-meta" />
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="dash-kpi-row">
+          <div className="card dash-kpi">
+            <div className="stat-label">Net Cash Position</div>
+            <div
+              className="stat-value"
+              style={{
+                color:
+                  ceoAttention.summary.net_position.net_cash_flow >= 0
+                    ? "var(--positive)"
+                    : "var(--negative)",
+              }}
+            >
+              {signedRupees(ceoAttention.summary.net_position.net_cash_flow)}
+            </div>
+            <div className="stat-sub">
+              Receivables {rupees(ceoAttention.summary.net_position.total_receivable_outstanding)} −
+              Payables {rupees(ceoAttention.summary.net_position.total_payable_outstanding)}
+            </div>
+          </div>
+          <div className="card dash-kpi">
+            <div className="stat-label">Unread Alerts</div>
+            <div className="stat-value">{ceoAttention.summary.unread_notifications}</div>
+            <div className="stat-sub">Notifications waiting for review</div>
+          </div>
+        </div>
+      </section>
+    )}
+
+    <div className="dash-footer-note">
         Built from {kpis.record_count} production records and {products.length}{" "}
         products in your file.
         <br />

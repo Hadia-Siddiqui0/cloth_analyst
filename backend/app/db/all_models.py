@@ -24,5 +24,7 @@ from app.models.production_run import ProductionRun  # noqa: F401
 from app.models.customer import Customer  # noqa: F401
 from app.models.sale import Sale  # noqa: F401
 from app.models.payment import Payment  # noqa: F401
+from app.models.payable import Payable  # noqa: F401
+from app.models.notification import Notification  # noqa: F401
 from app.models.contractor_ledger import ContractorLedgerEntry  # noqa: F401
 from app.models.expense import Expense  # noqa: F401

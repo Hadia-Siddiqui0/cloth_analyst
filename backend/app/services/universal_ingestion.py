@@ -294,16 +294,12 @@ def detect_sheet_type(columns: list[ColumnAnalysis]) -> tuple[str, float]:
     if costing_match >= 3:
         return ("article_costing", costing_match / len(costing_fields))
 
-    # Expenses: has date, description, cost (or paid/used amount)
-    expense_fields = {"date", "description", "cost", "paid", "credit"}
-    expense_match = len(detected_fields & expense_fields)
-    if expense_match >= 2:
-        return ("expenses", expense_match / len(expense_fields))
-
-    # Ledger: has date, balance, paid (received)
+    # Ledger: has date, balance, paid (received) - check FIRST before expenses
+    # because both share date/balance but ledger has debit/credit
     ledger_fields = {"date", "balance", "paid", "due", "debit", "credit"}
     ledger_match = len(detected_fields & ledger_fields)
-    if ledger_match >= 2:
+    has_debit_credit = "debit" in detected_fields or "credit" in detected_fields
+    if ledger_match >= 2 and has_debit_credit:
         return ("ledger", ledger_match / len(ledger_fields))
 
     # Inventory: has product, stock_in, stock_out, stock_balance
@@ -328,6 +324,13 @@ def detect_sheet_type(columns: list[ColumnAnalysis]) -> tuple[str, float]:
     payable_match = len(detected_fields & payable_fields)
     if payable_match >= 3:
         return ("payables", payable_match / len(payable_fields))
+
+    # Expenses: has date, description, cost (or paid/used amount)
+    # Only if no debit/credit (that would be ledger)
+    expense_fields = {"date", "description", "cost", "paid", "credit"}
+    expense_match = len(detected_fields & expense_fields)
+    if expense_match >= 2 and not has_debit_credit:
+        return ("expenses", expense_match / len(expense_fields))
 
     # Production runs with cost breakdown (garment factory specific)
     if "cloth_type" in detected_fields and "meters_per_piece" in detected_fields:
@@ -356,18 +359,44 @@ def find_header_row(df: pd.DataFrame, max_scan: int = 10) -> int:
     """
     Find the row that looks like a header by checking for
     date-type columns and text headers.
+
+    Handles cases where there are blank rows between header and data.
     """
     for i in range(min(max_scan, len(df))):
         row = df.iloc[i]
         # Check if this row has text values that look like headers
-        text_count = sum(1 for v in row if isinstance(v, str) and len(str(v)) > 0)
-        # Check if next row has different data types (indicates data, not headers)
-        if i + 1 < len(df):
-            next_row = df.iloc[i + 1]
-            has_numbers = any(isinstance(v, (int, float)) for v in next_row if pd.notna(v))
-            has_dates = any(isinstance(v, (pd.Timestamp, datetime)) for v in next_row if pd.notna(v))
-            if text_count > 3 and (has_numbers or has_dates):
-                return i
+        text_vals = [str(v).lower().strip() for v in row if isinstance(v, str) and len(str(v).strip()) > 0]
+        text_count = len(text_vals)
+
+        # Check if this row contains header-like keywords
+        header_keywords = {"date", "dated", "dt", "day", "time", "description", "desc", "detail",
+                          "amount", "balance", "receive", "paid", "used", "quantity", "qty",
+                          "product", "article", "item", "cost", "price", "revenue", "profit",
+                          "customer", "supplier", "party", "reference", "ref", "account",
+                          "stock", "inventory", "unit", "type", "category", "name"}
+        has_header_keywords = any(any(kw in val for kw in header_keywords) for val in text_vals)
+
+        # Check if next few rows have data (numbers/dates) - scan up to 3 rows ahead
+        has_data_below = False
+        for offset in range(1, 4):
+            if i + offset < len(df):
+                next_row = df.iloc[i + offset]
+                has_numbers = any(isinstance(v, (int, float)) and not pd.isna(v) for v in next_row)
+                has_dates = any(isinstance(v, (pd.Timestamp, datetime)) for v in next_row if pd.notna(v))
+                if has_numbers or has_dates:
+                    has_data_below = True
+                    break
+
+        # Row is a header if it has multiple text columns AND (header keywords OR data below)
+        if text_count > 2 and (has_header_keywords or has_data_below):
+            return i
+
+    # Fallback: check for row with "date" keyword (original ingestion approach)
+    for i in range(min(max_scan, len(df))):
+        row = df.iloc[i]
+        text_vals = [str(v).lower().strip() for v in row if isinstance(v, str) and len(str(v).strip()) > 0]
+        if any("date" in val for val in text_vals):
+            return i
 
     return 0  # Default to first row
 

@@ -99,6 +99,34 @@ export default function Receivables() {
     );
   }
 
+  function getOverdueDays(dueDate) {
+    if (!dueDate) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(dueDate);
+    due.setHours(0, 0, 0, 0);
+    const diff = Math.floor((today - due) / (1000 * 60 * 60 * 24));
+    return diff;
+  }
+
+  function getDaysUntilDue(dueDate) {
+    if (!dueDate) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(dueDate);
+    due.setHours(0, 0, 0, 0);
+    const diff = Math.floor((due - today) / (1000 * 60 * 60 * 24));
+    return diff;
+  }
+
+  function formatOverdueDays(days) {
+    if (days === null) return <span style={{ color: "var(--text-faint)" }}>—</span>;
+    if (days < 0) return <span style={{ color: "var(--negative)", fontWeight: 600 }}>{Math.abs(days)} days overdue</span>;
+    if (days === 0) return <span style={{ color: "var(--accent)", fontWeight: 600 }}>Due today</span>;
+    if (days <= 3) return <span style={{ color: "#d4a94f", fontWeight: 600 }}>Due in {days} day{days !== 1 ? "s" : ""}</span>;
+    return <span style={{ color: "var(--text-muted)" }}>In {days} days</span>;
+  }
+
   async function handleAddCustomer(e) {
     e.preventDefault();
     setFormErrors({});
@@ -353,9 +381,12 @@ export default function Receivables() {
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border)" }}>
                     <th style={styles.th}>Customer</th>
-                    <th style={styles.th}>Amount</th>
-                    <th style={styles.th}>Due</th>
+                    <th style={styles.th}>Amount Due</th>
+                    <th style={styles.th}>Paid</th>
+                    <th style={styles.th}>Remaining</th>
+                    <th style={styles.th}>Due Date</th>
                     <th style={styles.th}>Status</th>
+                    <th style={styles.th}>Overdue</th>
                     <th style={styles.th}>Action</th>
                   </tr>
                 </thead>
@@ -371,40 +402,52 @@ export default function Receivables() {
                       };
                       return (order[a.status] || 4) - (order[b.status] || 4);
                     })
-                    .map((p) => (
-                      <tr key={p.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={styles.td}>
-                          <div style={{ fontWeight: 600 }}>{p.customer_name}</div>
-                        </td>
-                        <td style={styles.td}>
-                          <span style={{ fontWeight: 700 }}>{rupees(p.amount)}</span>
-                        </td>
-                        <td style={styles.td}>
-                          {p.due_date
-                            ? new Date(p.due_date).toLocaleDateString("en-GB", {
-                                day: "2-digit",
-                                month: "short",
-                                year: "numeric",
-                              })
-                            : <span style={{ color: "var(--text-faint)" }}>No due date</span>}
-                        </td>
-                        <td style={styles.td}>
-                          <span style={{ color: statusColor(p.status), fontWeight: 600 }}>
-                            {statusDot(p.status)}
-                            {statusLabel(p.status)}
-                          </span>
-                        </td>
-                        <td style={styles.td}>
-                          <button
-                            onClick={() => handleMarkPaid(p.id)}
-                            className="btn btn-ghost"
-                            style={{ padding: "6px 12px", fontSize: 12 }}
-                          >
-                            Mark paid
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    .map((p) => {
+                      const overdueDays = getOverdueDays(p.due_date);
+                      return (
+                        <tr key={p.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td style={styles.td}>
+                            <div style={{ fontWeight: 600 }}>{p.customer_name}</div>
+                          </td>
+                          <td style={styles.td}>
+                            <span style={{ fontWeight: 700 }}>{rupees(p.amount)}</span>
+                          </td>
+                          <td style={styles.td}>
+                            <span style={{ color: "var(--text-muted)" }}>₹0</span>
+                          </td>
+                          <td style={styles.td}>
+                            <span style={{ fontWeight: 700, color: "var(--negative)" }}>{rupees(p.amount)}</span>
+                          </td>
+                          <td style={styles.td}>
+                            {p.due_date
+                              ? new Date(p.due_date).toLocaleDateString("en-GB", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  year: "numeric",
+                                })
+                              : <span style={{ color: "var(--text-faint)" }}>No due date</span>}
+                          </td>
+                          <td style={styles.td}>
+                            <span style={{ color: statusColor(p.status), fontWeight: 600 }}>
+                              {statusDot(p.status)}
+                              {statusLabel(p.status)}
+                            </span>
+                          </td>
+                          <td style={styles.td}>
+                            {formatOverdueDays(overdueDays)}
+                          </td>
+                          <td style={styles.td}>
+                            <button
+                              onClick={() => handleMarkPaid(p.id)}
+                              className="btn btn-ghost"
+                              style={{ padding: "6px 12px", fontSize: 12 }}
+                            >
+                              Mark paid
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
@@ -422,8 +465,11 @@ export default function Receivables() {
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)" }}>
                   <th style={styles.th}>Customer</th>
-                  <th style={styles.th}>Amount</th>
-                  <th style={styles.th}>Paid on</th>
+                  <th style={styles.th}>Amount Due</th>
+                  <th style={styles.th}>Paid</th>
+                  <th style={styles.th}>Remaining</th>
+                  <th style={styles.th}>Due Date</th>
+                  <th style={styles.th}>Paid On</th>
                 </tr>
               </thead>
               <tbody>
@@ -432,7 +478,18 @@ export default function Receivables() {
                   .map((p) => (
                     <tr key={p.id} style={{ borderBottom: "1px solid var(--border)" }}>
                       <td style={styles.td}>{p.customer_name}</td>
-                      <td style={styles.td}><span style={{ color: "var(--positive)" }}>{rupees(p.amount)}</span></td>
+                      <td style={styles.td}><span style={{ fontWeight: 700 }}>{rupees(p.amount)}</span></td>
+                      <td style={styles.td}><span style={{ color: "var(--positive)", fontWeight: 700 }}>{rupees(p.amount)}</span></td>
+                      <td style={styles.td}><span style={{ color: "var(--positive)" }}>₹0</span></td>
+                      <td style={styles.td}>
+                        {p.due_date
+                          ? new Date(p.due_date).toLocaleDateString("en-GB", {
+                              day: "2-digit",
+                              month: "short",
+                              year: "numeric",
+                            })
+                          : "—"}
+                      </td>
                       <td style={styles.td}>
                         {p.paid_date
                           ? new Date(p.paid_date).toLocaleDateString("en-GB", {
